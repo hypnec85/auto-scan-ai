@@ -1,0 +1,345 @@
+import streamlit as st
+import pandas as pd
+import os
+from utils import load_data, categorize_car, generate_engineer_report
+
+# 페이지 설정
+st.set_page_config(
+    page_title="오토 스캔 (Auto Scan AI)",
+    page_icon="🚗",
+    layout="wide"
+)
+
+# --- 메인 타이틀 ---
+st.title("🚗 오토 스캔 (Auto Scan AI)")
+st.markdown("""
+**"이 차, 사도 될까요?"**  
+20년 경력 정비 엔지니어의 관점으로 중고차의 성능점검기록부를 분석하여,  
+절대 사면 안 되는 차(Tier 1)와 가성비 좋은 차(Tier 3)를 가려드립니다.
+""")
+
+# 기본 컬럼 및 데이터 타입 정의
+DEFAULT_COLUMNS = {
+    '차량명': str,
+    '엔진': str,
+    '트림': str,
+    '색상': str,
+    '차량가격(만원)': int,
+    '연식': int,
+    '최초 등록일': str,
+    '주행거리(km)': int,
+    '수리내역': str,
+    '특수용도이력': str,
+    '1인소유': str,
+    '내차피해액': int,
+    '내차피해횟수': int,
+    '상대차피해횟수': int
+}
+
+DEFAULT_DATA = {
+    '특수용도이력': 'X',
+    '1인소유': 'O',
+    '내차피해액': 0,
+    '내차피해횟수': 0,
+    '상대차피해횟수': 0,
+    '수리내역': ''
+}
+
+# 예시 데이터 (초기 로드용)
+EXAMPLE_DATA = pd.DataFrame([
+    {
+        '차량명': '아반떼 CN7 (예시)',
+        '엔진': '가솔린 1.6',
+        '트림': '인스퍼레이션',
+        '색상': '화이트',
+        '차량가격(만원)': 2150,
+        '연식': 2021,
+        '최초 등록일': '2021-03-15',
+        '주행거리(km)': 35000,
+        '수리내역': '프론트휀더(우)(교환)',
+        '특수용도이력': 'X',
+        '1인소유': 'O',
+        '내차피해액': 0,
+        '내차피해횟수': 0,
+        '상대차피해횟수': 0
+    }
+])
+
+# 세션 상태 초기화
+if 'df' not in st.session_state:
+    st.session_state.df = EXAMPLE_DATA.copy()
+
+if 'analyzed_df' not in st.session_state:
+    st.session_state.analyzed_df = None
+if 'ai_report' not in st.session_state:
+    st.session_state.ai_report = None
+if 'ai_model_used' not in st.session_state: # 모델명 저장용 세션 변수
+    st.session_state.ai_model_used = None
+if 'generating_report' not in st.session_state:
+    st.session_state.generating_report = False
+if 'menu_index' not in st.session_state:
+    st.session_state.menu_index = 0
+if 'user_preference' not in st.session_state:
+    st.session_state.user_preference = "밸런스"
+
+# 콜백 함수
+def start_generation():
+    st.session_state.generating_report = True
+    st.session_state.menu_index = 1 
+
+def reset_generation():
+    st.session_state.ai_report = None
+    st.session_state.ai_model_used = None
+    st.session_state.generating_report = True
+    st.session_state.menu_index = 1 
+
+def set_menu_index():
+    pass
+
+def load_csv_file_callback():
+    uploaded_file_obj = st.session_state.uploaded_csv_file # key로 직접 접근
+    if uploaded_file_obj is not None:
+        loaded_df = load_data(uploaded_file_obj)
+        if loaded_df is not None:
+            loaded_df = loaded_df.loc[:, ~loaded_df.columns.str.contains('^Unnamed')]
+            
+            for col in DEFAULT_COLUMNS.keys():
+                if col not in loaded_df.columns:
+                    loaded_df[col] = DEFAULT_DATA.get(col, '')
+                try:
+                    loaded_df[col] = loaded_df[col].astype(DEFAULT_COLUMNS[col])
+                except Exception:
+                    st.warning(f"경고: '{col}' 컬럼의 데이터 타입 변환 중 오류가 발생했습니다. 일부 데이터가 유실될 수 있습니다.")
+            
+            st.session_state.df = loaded_df
+            st.session_state.analyzed_df = None
+            st.success("데이터를 성공적으로 불러왔습니다. 재분석이 필요합니다.")
+            st.rerun()
+
+# 사이드바 설정
+with st.sidebar:
+    st.header("데이터 관리")
+    
+    # CSV 불러오기
+    st.file_uploader("CSV 파일 불러오기 (현재 데이터 덮어쓰기)", type=['csv'], 
+                                         on_change=load_csv_file_callback, 
+                                         key="uploaded_csv_file")
+    
+    # CSV 내보내기
+    if not st.session_state.df.empty:
+        csv = st.session_state.df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="현재 데이터 CSV로 내보내기",
+            data=csv,
+            file_name="used_car_data.csv",
+            mime="text/csv",
+        )
+
+    st.divider()
+
+    # 사용자 성향 입력 슬라이더
+    st.subheader("💡 분석 성향 선택")
+    st.session_state.user_preference = st.select_slider(
+        "어떤 기준으로 분석할까요?",
+        options=["가성비 최우선", "밸런스", "안전 최우선"],
+        value=st.session_state.user_preference
+    )
+    st.markdown(f"현재 선택: **{st.session_state.user_preference}**")
+
+    st.divider()
+
+    # 분석 결과 메뉴 (분석된 데이터가 있을 때만 표시)
+    if st.session_state.analyzed_df is not None:
+        menu_options = ["📊 전체 리스트", "🤖 AI 엔지니어 리포트", "🏆 Rule-Based 추천", "🚨 Rule-Based 경고"]
+        
+        selected_menu = st.radio(
+            "분석 결과 보기", 
+            menu_options, 
+            index=st.session_state.menu_index,
+            key="menu_radio",
+            on_change=set_menu_index
+        )
+        st.session_state.menu_index = menu_options.index(selected_menu)
+        st.divider()
+
+    if st.button("초기화 (모든 데이터 삭제)"):
+        st.session_state.df = pd.DataFrame(columns=DEFAULT_COLUMNS.keys())
+        st.session_state.analyzed_df = None
+        st.session_state.ai_report = None
+        st.session_state.ai_model_used = None
+        st.session_state.generating_report = False
+        st.session_state.menu_index = 0
+        st.rerun()
+    
+    with st.expander("Tier 시스템 가이드 보기"):
+        st.info("Tier 시스템 가이드")
+        st.markdown("""
+        - **Tier 1 (구매 금지)**: 휠하우스, 사이드멤버 등 주요 골격 손상.
+        - **Tier 2 (경고)**: 리어패널, 인사이드패널 등 2차 골격 손상.
+        - **Tier 3 (추천)**: 휀더, 도어 등 단순 외판 교환.
+        """)
+
+# 메인 컨텐츠
+st.subheader("📝 매물 데이터 관리")
+
+# --- 1. 신규 매물 추가 Form (Input Method Replacement) ---
+with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded=True):
+    st.info("아래 양식을 작성하여 리스트에 매물을 추가하세요.")
+    with st.form("add_car_form", clear_on_submit=True):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            new_name = st.text_input("차량명", placeholder="예: 아반떼 CN7")
+            new_price = st.number_input("차량가격(만원)", min_value=0, step=10, value=0)
+        with col2:
+            new_engine = st.text_input("엔진", placeholder="예: 가솔린 1.6")
+            new_year = st.number_input("연식", min_value=1900, max_value=2100, step=1, value=2020)
+        with col3:
+            new_trim = st.text_input("트림", placeholder="예: 인스퍼레이션")
+            new_km = st.number_input("주행거리(km)", min_value=0, step=1000, value=0)
+        with col4:
+            new_color = st.text_input("색상", placeholder="예: 화이트")
+            new_reg_date = st.date_input("최초 등록일")
+
+        col5, col6, col7, col8 = st.columns(4)
+        with col5:
+            new_special = st.selectbox("특수용도이력", ["X", "O"])
+        with col6:
+            new_one_owner = st.selectbox("1인소유", ["O", "X"])
+        with col7:
+            new_my_damage_cnt = st.number_input("내차피해횟수", min_value=0, step=1, value=0)
+        with col8:
+            new_other_damage_cnt = st.number_input("상대차피해횟수", min_value=0, step=1, value=0)
+        
+        new_my_damage_amt = st.number_input("내차피해액(원)", min_value=0, step=10000, value=0)
+        new_repair = st.text_area("수리내역 (중요)", placeholder="성능점검기록부의 수리내역을 입력하세요. (예: 후드 교환, 프론트휀더(우) 판금)")
+
+        submitted = st.form_submit_button("매물 리스트에 추가")
+        
+        if submitted:
+            new_data = {
+                '차량명': new_name,
+                '엔진': new_engine,
+                '트림': new_trim,
+                '색상': new_color,
+                '차량가격(만원)': new_price,
+                '연식': new_year,
+                '최초 등록일': str(new_reg_date),
+                '주행거리(km)': new_km,
+                '수리내역': new_repair,
+                '특수용도이력': new_special,
+                '1인소유': new_one_owner,
+                '내차피해액': new_my_damage_amt,
+                '내차피해횟수': new_my_damage_cnt,
+                '상대차피해횟수': new_other_damage_cnt
+            }
+            # DataFrame에 추가
+            new_row = pd.DataFrame([new_data])
+            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+            st.success(f"'{new_name}' 차량이 추가되었습니다!")
+            st.rerun()
+
+st.divider()
+
+# --- 2. 현재 매물 리스트 확인 및 삭제 ---
+st.subheader(f"📋 현재 등록된 매물 리스트 ({len(st.session_state.df)}대)")
+
+# 데이터 삭제 기능
+if not st.session_state.df.empty:
+    with st.expander("🗑️ 매물 삭제하기"):
+        # 인덱스와 차량명으로 선택지 생성
+        delete_options = [f"{i} : {row['차량명']} ({row['차량가격(만원)']}만원)" for i, row in st.session_state.df.iterrows()]
+        selected_to_delete = st.multiselect("삭제할 차량을 선택하세요:", delete_options)
+        
+        if st.button("선택한 차량 삭제"):
+            if selected_to_delete:
+                indices_to_drop = [int(opt.split(" :")[0]) for opt in selected_to_delete]
+                st.session_state.df = st.session_state.df.drop(indices_to_drop).reset_index(drop=True)
+                st.success("선택한 차량이 삭제되었습니다.")
+                st.rerun()
+            else:
+                st.warning("삭제할 차량을 선택해주세요.")
+
+# 읽기 전용 DataFrame 표시
+st.dataframe(st.session_state.df, use_container_width=True)
+
+st.divider()
+
+# 분석 버튼
+if not st.session_state.df.empty:
+    if st.button("🔍 현재 데이터로 정밀 분석 시작", type="primary"):
+        with st.spinner("데이터를 분석 중입니다..."):
+            df_to_analyze = st.session_state.df.copy()
+            
+            df_to_analyze['수리내역'] = df_to_analyze['수리내역'].fillna('')
+            
+            df_to_analyze[['Tier', '분석결과']] = df_to_analyze.apply(categorize_car, axis=1)
+            
+            st.session_state.analyzed_df = df_to_analyze
+            st.session_state.ai_report = None 
+            st.session_state.ai_model_used = None
+            st.session_state.generating_report = False
+            st.session_state.menu_index = 0 # 전체 리스트 뷰로 이동
+            st.rerun()
+
+# 분석 결과 뷰 (사이드바 메뉴 선택에 따라 표시)
+if st.session_state.analyzed_df is not None:
+    st.divider()
+    st.header("📊 분석 결과")
+    
+    df = st.session_state.analyzed_df
+    
+    # 1. 전체 리스트
+    if st.session_state.menu_index == 0:
+        st.subheader(f"✅ 총 {len(df)}개의 매물 분석 결과")
+        st.dataframe(df)
+
+    # 2. AI 리포트
+    elif st.session_state.menu_index == 1:
+        st.subheader("🤖 Gemini 엔지니어의 심층 리포트")
+        st.warning("⚠️ AI 리포트는 학습 데이터에 기반하므로, 실제와 다른 정보나 거짓을 포함할 수 있습니다. 반드시 교차 검증하시고 주의하여 참고하십시오.")
+        
+        
+        if st.session_state.generating_report:
+            with st.spinner("엔지니어가 매물을 꼼꼼히 살펴보고 보고서를 작성 중입니다..."):
+                # generate_engineer_report가 (report_text, model_name)을 반환하도록 수정됨
+                report_text, model_name = generate_engineer_report(df, st.session_state.user_preference)
+                
+                st.session_state.ai_report = report_text
+                st.session_state.ai_model_used = model_name
+                st.session_state.generating_report = False
+                st.rerun()
+        
+        elif st.session_state.ai_report:
+            # 사용된 모델명 표시
+            if st.session_state.ai_model_used:
+                st.caption(f"💡 AI 분석 모델: **{st.session_state.ai_model_used}**")
+            
+            st.markdown(st.session_state.ai_report)
+            st.divider()
+            st.button("🔄 리포트 다시 생성", on_click=reset_generation)
+            
+        else:
+            st.button("AI 리포트 생성하기 (Gemini)", on_click=start_generation)
+
+    # 3. Rule-Based 추천
+    elif st.session_state.menu_index == 2:
+        st.subheader("가성비 최고의 추천 매물 (Tier 3)")
+        st.info("단순 교환으로 감가는 되었으나 뼈대는 튼튼한 차량들입니다.")
+        recommendations = df[df['Tier'] == 3].sort_values(by=['연식', '주행거리(km)'], ascending=[False, True]).head(5)
+        if recommendations.empty:
+            st.warning("Tier 3 (단순 교환 무사고급) 매물이 없습니다.")
+        else:
+            st.dataframe(recommendations[['차량명', '차량가격(만원)', '주행거리(km)', '연식', '수리내역', '분석결과']])
+
+    # 4. Rule-Based 경고
+    elif st.session_state.menu_index == 3:
+        st.subheader("절대 구매 금지 (Tier 1)")
+        st.error("주요 골격(프레임)이 손상된 차량입니다. 안전에 치명적일 수 있습니다.")
+        warnings = df[df['Tier'] == 1].head(5)
+        if warnings.empty:
+            st.success("치명적인 사고 차량(Tier 1)은 발견되지 않았습니다.")
+        else:
+            for _, row in warnings.iterrows():
+                with st.expander(f"🛑 {row['차량명']} ({row['차량가격(만원)']}만원) - 위험!", expanded=True):
+                    st.write(f"**사유**: {row['분석결과']}")
+                    st.write(f"**수리내역**: {row['수리내역']}")
