@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import os
 from utils import load_data, categorize_car, generate_engineer_report
 
 # 페이지 설정
@@ -81,6 +80,8 @@ if 'menu_index' not in st.session_state:
     st.session_state.menu_index = 0
 if 'user_preference' not in st.session_state:
     st.session_state.user_preference = "밸런스"
+if 'form_expanded' not in st.session_state: # 폼 확장 상태 제어
+    st.session_state.form_expanded = True
 
 # 콜백 함수
 def start_generation():
@@ -92,9 +93,6 @@ def reset_generation():
     st.session_state.ai_model_used = None
     st.session_state.generating_report = True
     st.session_state.menu_index = 1 
-
-def set_menu_index():
-    pass
 
 def load_csv_file_callback():
     uploaded_file_obj = st.session_state.uploaded_csv_file # key로 직접 접근
@@ -113,6 +111,7 @@ def load_csv_file_callback():
             
             st.session_state.df = loaded_df
             st.session_state.analyzed_df = None
+            st.session_state.form_expanded = False # CSV 로드 시 폼 접기
             st.success("데이터를 성공적으로 불러왔습니다. 재분석이 필요합니다.")
             st.rerun()
 
@@ -152,14 +151,17 @@ with st.sidebar:
     if st.session_state.analyzed_df is not None:
         menu_options = ["📊 전체 리스트", "🤖 AI 엔지니어 리포트", "🏆 Rule-Based 추천", "🚨 Rule-Based 경고"]
         
+        # Key를 제거하고 Index로 제어
         selected_menu = st.radio(
             "분석 결과 보기", 
             menu_options, 
-            index=st.session_state.menu_index,
-            key="menu_radio",
-            on_change=set_menu_index
+            index=st.session_state.menu_index
         )
-        st.session_state.menu_index = menu_options.index(selected_menu)
+        # 사용자가 직접 클릭했을 때만 상태 업데이트
+        if menu_options.index(selected_menu) != st.session_state.menu_index:
+             st.session_state.menu_index = menu_options.index(selected_menu)
+             st.rerun() # 인덱스 변경 시 리런하여 뷰 갱신
+        
         st.divider()
 
     if st.button("초기화 (모든 데이터 삭제)"):
@@ -169,6 +171,7 @@ with st.sidebar:
         st.session_state.ai_model_used = None
         st.session_state.generating_report = False
         st.session_state.menu_index = 0
+        st.session_state.form_expanded = True
         st.rerun()
     
     with st.expander("Tier 시스템 가이드 보기"):
@@ -182,8 +185,8 @@ with st.sidebar:
 # 메인 컨텐츠
 st.subheader("📝 매물 데이터 관리")
 
-# --- 1. 신규 매물 추가 Form (Input Method Replacement) ---
-with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded=True):
+# --- 1. 신규 매물 추가 Form ---
+with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded=st.session_state.form_expanded):
     st.info("아래 양식을 작성하여 리스트에 매물을 추가하세요.")
     with st.form("add_car_form", clear_on_submit=True):
         col1, col2, col3, col4 = st.columns(4)
@@ -262,6 +265,7 @@ if not st.session_state.df.empty:
 # 읽기 전용 DataFrame 표시
 st.dataframe(st.session_state.df, use_container_width=True)
 
+
 st.divider()
 
 # 분석 버튼
@@ -281,7 +285,7 @@ if not st.session_state.df.empty:
             st.session_state.menu_index = 0 # 전체 리스트 뷰로 이동
             st.rerun()
 
-# 분석 결과 뷰 (사이드바 메뉴 선택에 따라 표시)
+# 분석 결과 뷰
 if st.session_state.analyzed_df is not None:
     st.divider()
     st.header("📊 분석 결과")
@@ -293,6 +297,12 @@ if st.session_state.analyzed_df is not None:
         st.subheader(f"✅ 총 {len(df)}개의 매물 분석 결과")
         st.dataframe(df)
 
+        # AI 리포트 바로가기 버튼
+        if st.button("🤖 AI 엔지니어 리포트 메뉴로 이동", help="AI 분석 리포트 화면으로 이동합니다."):
+            st.session_state.menu_index = 1 # 탭만 변경
+            st.session_state.generating_report = False # 자동 생성 방지
+            st.rerun()
+
     # 2. AI 리포트
     elif st.session_state.menu_index == 1:
         st.subheader("🤖 Gemini 엔지니어의 심층 리포트")
@@ -301,7 +311,6 @@ if st.session_state.analyzed_df is not None:
         
         if st.session_state.generating_report:
             with st.spinner("엔지니어가 매물을 꼼꼼히 살펴보고 보고서를 작성 중입니다..."):
-                # generate_engineer_report가 (report_text, model_name)을 반환하도록 수정됨
                 report_text, model_name = generate_engineer_report(df, st.session_state.user_preference)
                 
                 st.session_state.ai_report = report_text
@@ -310,7 +319,6 @@ if st.session_state.analyzed_df is not None:
                 st.rerun()
         
         elif st.session_state.ai_report:
-            # 사용된 모델명 표시
             if st.session_state.ai_model_used:
                 st.caption(f"💡 AI 분석 모델: **{st.session_state.ai_model_used}**")
             
