@@ -51,6 +51,11 @@ DEFAULT_DATA = {
 # 세션 상태 초기화
 if 'df' not in st.session_state:
     st.session_state.df = pd.DataFrame(columns=DEFAULT_COLUMNS.keys()) # 빈 DataFrame으로 초기화
+else:
+    # 기존 세션 데이터에 새로운 컬럼(예: 옵션)이 없는 경우 마이그레이션
+    for col in DEFAULT_COLUMNS.keys():
+        if col not in st.session_state.df.columns:
+            st.session_state.df[col] = DEFAULT_DATA.get(col, '')
 
 if 'analyzed_df' not in st.session_state:
     st.session_state.analyzed_df = None
