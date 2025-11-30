@@ -49,7 +49,7 @@ DEFAULT_DATA = {
 }
 
 # 세션 상태 초기화
-if 'df' not in st.session_state:
+if 'df' not in st.session_state or not isinstance(st.session_state.df, pd.DataFrame):
     st.session_state.df = pd.DataFrame(columns=DEFAULT_COLUMNS.keys()) # 빈 DataFrame으로 초기화
 else:
     # 기존 세션 데이터에 새로운 컬럼(예: 옵션)이 없는 경우 마이그레이션
