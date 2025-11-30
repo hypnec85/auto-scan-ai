@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import os
 from utils import load_data, categorize_car, generate_engineer_report
 
 # 페이지 설정
@@ -27,6 +28,7 @@ DEFAULT_COLUMNS = {
     '연식': int,
     '최초 등록일': str,
     '주행거리(km)': int,
+    '옵션': str, # 옵션 컬럼 추가
     '수리내역': str,
     '특수용도이력': str,
     '1인소유': str,
@@ -36,6 +38,7 @@ DEFAULT_COLUMNS = {
 }
 
 DEFAULT_DATA = {
+    '옵션': '', # 옵션 기본값 추가
     '특수용도이력': 'X',
     '1인소유': 'O',
     '내차피해액': 0,
@@ -55,6 +58,7 @@ EXAMPLE_DATA = pd.DataFrame([
         '연식': 2021,
         '최초 등록일': '2021-03-15',
         '주행거리(km)': 35000,
+        '옵션': '10.25인치 UVO 내비게이션 93만원, 드라이브 와이즈 74만원', # 옵션 예시 가격 추가
         '수리내역': '프론트휀더(우)(교환)',
         '특수용도이력': 'X',
         '1인소유': 'O',
@@ -105,7 +109,11 @@ def load_csv_file_callback():
                 if col not in loaded_df.columns:
                     loaded_df[col] = DEFAULT_DATA.get(col, '')
                 try:
-                    loaded_df[col] = loaded_df[col].astype(DEFAULT_COLUMNS[col])
+                    # '최초 등록일' 컬럼이 이미 datetime 객체일 수 있으므로 str 변환 전에 확인
+                    if col == '최초 등록일' and pd.api.types.is_datetime64_any_dtype(loaded_df[col]):
+                        loaded_df[col] = loaded_df[col].dt.strftime('%Y-%m-%d')
+                    else:
+                        loaded_df[col] = loaded_df[col].astype(DEFAULT_COLUMNS[col])
                 except Exception:
                     st.warning(f"경고: '{col}' 컬럼의 데이터 타입 변환 중 오류가 발생했습니다. 일부 데이터가 유실될 수 있습니다.")
             
@@ -133,6 +141,30 @@ with st.sidebar:
             file_name="used_car_data.csv",
             mime="text/csv",
         )
+    
+    # 샘플 데이터 로드 버튼
+    if os.path.exists("sample_data.csv"):
+        if st.button("테스트용 데이터 로드"):
+            loaded_df = load_data("sample_data.csv")
+            if loaded_df is not None:
+                loaded_df = loaded_df.loc[:, ~loaded_df.columns.str.contains('^Unnamed')]
+                
+                for col in DEFAULT_COLUMNS.keys():
+                    if col not in loaded_df.columns:
+                        loaded_df[col] = DEFAULT_DATA.get(col, '')
+                    try:
+                        if col == '최초 등록일' and pd.api.types.is_datetime64_any_dtype(loaded_df[col]):
+                            loaded_df[col] = loaded_df[col].dt.strftime('%Y-%m-%d')
+                        else:
+                            loaded_df[col] = loaded_df[col].astype(DEFAULT_COLUMNS[col])
+                    except Exception:
+                        pass
+                
+                st.session_state.df = loaded_df
+                st.session_state.analyzed_df = None
+                st.session_state.form_expanded = False
+                st.success("샘플 데이터를 성공적으로 불러왔습니다.")
+                st.rerun()
 
     st.divider()
 
@@ -215,6 +247,7 @@ with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded
         
         new_my_damage_amt = st.number_input("내차피해액(원)", min_value=0, step=10000, value=0)
         new_repair = st.text_area("수리내역 (중요)", placeholder="성능점검기록부의 수리내역을 입력하세요. (예: 후드 교환, 프론트휀더(우) 판금)")
+        new_option = st.text_area("옵션", placeholder="옵션 내용을 자유롭게 입력하세요. (예: 10.25인치 UVO 내비게이션 93만원, 파노라마 선루프 118만원)") # 옵션 입력 필드 추가
 
         submitted = st.form_submit_button("매물 리스트에 추가")
         
@@ -228,6 +261,7 @@ with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded
                 '연식': new_year,
                 '최초 등록일': str(new_reg_date),
                 '주행거리(km)': new_km,
+                '옵션': new_option, # 옵션 데이터 포함
                 '수리내역': new_repair,
                 '특수용도이력': new_special,
                 '1인소유': new_one_owner,

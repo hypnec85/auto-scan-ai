@@ -30,6 +30,9 @@ def load_data(file_path):
             df = pd.read_csv(file_path)
         # 수리내역 결측치는 빈 문자열로 처리
         df['수리내역'] = df['수리내역'].fillna('')
+        # '옵션' 컬럼이 없는 경우 빈 문자열로 초기화
+        if '옵션' not in df.columns:
+            df['옵션'] = ''
         return df
     except Exception as e:
         print(f"Error loading data: {e}")
@@ -172,15 +175,16 @@ def generate_engineer_report(df, user_preference):
         'gemini-2.0-flash-lite'
     ]
 
-    # 프롬프트에 넣을 데이터 요약
-    summary_df = df[['차량명', '엔진', '트림', '차량가격(만원)', '주행거리(km)', '연식', '수리내역', '내차피해액', 'Tier', '분석결과']].copy()
+    # 프롬프트에 넣을 데이터 요약 (옵션 컬럼 추가)
+    summary_df = df[['차량명', '엔진', '트림', '차량가격(만원)', '주행거리(km)', '연식', '옵션', '수리내역', '내차피해액', 'Tier', '분석결과']].copy()
     
     # 숫자만 있으면 LLM이 혼동할 수 있으므로 단위를 붙여 문자열로 변환
     summary_df['차량가격(만원)'] = summary_df['차량가격(만원)'].astype(str) + "만원"
     summary_df['주행거리(km)'] = summary_df['주행거리(km)'].astype(str) + "km"
     summary_df['내차피해액'] = summary_df['내차피해액'].astype(str) + "원" 
     
-    summary_df.columns = ['Model', 'Engine', 'Trim', 'Price', 'Mileage', 'Model Year', 'Repair History', 'Own Damage Amount', 'Safety Tier', 'Analysis Summary']
+    # 컬럼명도 'Option'으로 변경
+    summary_df.columns = ['Model', 'Engine', 'Trim', 'Price', 'Mileage', 'Model Year', 'Option', 'Repair History', 'Own Damage Amount', 'Safety Tier', 'Analysis Summary']
     
     data_str = summary_df.to_markdown()
 
@@ -189,7 +193,8 @@ def generate_engineer_report(df, user_preference):
     다음 제공된 중고차 목록 데이터를 분석하여 구매자에게 리포트를 작성해 주세요.
 
     **데이터 특성:**
-    - 제공된 목록에는 서로 다른 차종(Model), 엔진(Engine), 트림(Trim)이 섞여 있을 수 있습니다.
+    - 제공된 목록에는 서로 다른 차종(Model), 엔진(Engine), 트림(Trim), 옵션(Option)이 섞여 있을 수 있습니다.
+    - 'Option' 컬럼의 내용은 차량의 기능성 및 편의성에 큰 영향을 주며, 중고차 가격 및 가성비 평가에 중요한 요소로 고려해야 합니다. 특히 고급 옵션이 많다면 가격이 높더라도 가성비가 좋을 수 있습니다.
     - 'Repair History'나 'Own Damage Amount'에 **"미확정"**이라는 키워드가 있다면, 이는 정보의 불확실성을 나타내므로 해당 차량은 잠재적 위험이 크다고 판단하여 보수적으로 평가해 주십시오. (최소 Tier 2 경고 수준)
     - 차종이 다르더라도 오직 '기계적 완성도', '안전성', '가성비' 관점에서 공정하게 평가해 주십시오.
 
