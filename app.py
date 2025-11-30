@@ -103,7 +103,6 @@ def load_csv_file_callback():
             st.session_state.analyzed_df = None
             st.session_state.form_expanded = False # CSV 로드 시 폼 접기
             st.success("데이터를 성공적으로 불러왔습니다. 재분석이 필요합니다.")
-            st.rerun()
 
 # 사이드바 설정
 with st.sidebar:
