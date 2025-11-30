@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import streamlit.components.v1 as components
 from utils import load_data, categorize_car, generate_engineer_report
 
 # 페이지 설정
@@ -28,7 +29,7 @@ DEFAULT_COLUMNS = {
     '연식': int,
     '최초 등록일': str,
     '주행거리(km)': int,
-    '옵션': str, # 옵션 컬럼 추가
+    '옵션': str,
     '수리내역': str,
     '특수용도이력': str,
     '1인소유': str,
@@ -38,7 +39,7 @@ DEFAULT_COLUMNS = {
 }
 
 DEFAULT_DATA = {
-    '옵션': '', # 옵션 기본값 추가
+    '옵션': '',
     '특수용도이력': 'X',
     '1인소유': 'O',
     '내차피해액': 0,
@@ -47,30 +48,9 @@ DEFAULT_DATA = {
     '수리내역': ''
 }
 
-# 예시 데이터 (초기 로드용)
-EXAMPLE_DATA = pd.DataFrame([
-    {
-        '차량명': '아반떼 CN7 (예시)',
-        '엔진': '가솔린 1.6',
-        '트림': '인스퍼레이션',
-        '색상': '화이트',
-        '차량가격(만원)': 2150,
-        '연식': 2021,
-        '최초 등록일': '2021-03-15',
-        '주행거리(km)': 35000,
-        '옵션': '10.25인치 UVO 내비게이션 93만원, 드라이브 와이즈 74만원', # 옵션 예시 가격 추가
-        '수리내역': '프론트휀더(우)(교환)',
-        '특수용도이력': 'X',
-        '1인소유': 'O',
-        '내차피해액': 0,
-        '내차피해횟수': 0,
-        '상대차피해횟수': 0
-    }
-])
-
 # 세션 상태 초기화
 if 'df' not in st.session_state:
-    st.session_state.df = EXAMPLE_DATA.copy()
+    st.session_state.df = pd.DataFrame(columns=DEFAULT_COLUMNS.keys()) # 빈 DataFrame으로 초기화
 
 if 'analyzed_df' not in st.session_state:
     st.session_state.analyzed_df = None
@@ -109,13 +89,15 @@ def load_csv_file_callback():
                 if col not in loaded_df.columns:
                     loaded_df[col] = DEFAULT_DATA.get(col, '')
                 try:
-                    # '최초 등록일' 컬럼이 이미 datetime 객체일 수 있으므로 str 변환 전에 확인
-                    if col == '최초 등록일' and pd.api.types.is_datetime64_any_dtype(loaded_df[col]):
-                        loaded_df[col] = loaded_df[col].dt.strftime('%Y-%m-%d')
+                    if col == '최초 등록일':
+                        loaded_df[col] = pd.to_datetime(loaded_df[col], errors='coerce').dt.strftime('%Y-%m-%d')
+                        loaded_df[col] = loaded_df[col].fillna('')
+                    elif DEFAULT_COLUMNS[col] == int: # DEFAULT_COLUMNS에서 int로 정의된 경우 처리
+                        loaded_df[col] = pd.to_numeric(loaded_df[col], errors='coerce').fillna(0).astype(int)
                     else:
                         loaded_df[col] = loaded_df[col].astype(DEFAULT_COLUMNS[col])
-                except Exception:
-                    st.warning(f"경고: '{col}' 컬럼의 데이터 타입 변환 중 오류가 발생했습니다. 일부 데이터가 유실될 수 있습니다.")
+                except Exception as e:
+                    st.warning(f"경고: '{col}' 컬럼의 데이터 타입 변환 중 오류가 발생했습니다. 원인: {e} - 일부 데이터가 유실될 수 있습니다.")
             
             st.session_state.df = loaded_df
             st.session_state.analyzed_df = None
@@ -153,12 +135,15 @@ with st.sidebar:
                     if col not in loaded_df.columns:
                         loaded_df[col] = DEFAULT_DATA.get(col, '')
                     try:
-                        if col == '최초 등록일' and pd.api.types.is_datetime64_any_dtype(loaded_df[col]):
-                            loaded_df[col] = loaded_df[col].dt.strftime('%Y-%m-%d')
+                        if col == '최초 등록일':
+                            loaded_df[col] = pd.to_datetime(loaded_df[col], errors='coerce').dt.strftime('%Y-%m-%d')
+                            loaded_df[col] = loaded_df[col].fillna('')
+                        elif DEFAULT_COLUMNS[col] == int: # DEFAULT_COLUMNS에서 int로 정의된 경우 처리
+                            loaded_df[col] = pd.to_numeric(loaded_df[col], errors='coerce').fillna(0).astype(int)
                         else:
                             loaded_df[col] = loaded_df[col].astype(DEFAULT_COLUMNS[col])
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        st.warning(f"경고: '{col}' 컬럼의 데이터 타입 변환 중 오류가 발생했습니다. 원인: {e} - 일부 데이터가 유실될 수 있습니다.")
                 
                 st.session_state.df = loaded_df
                 st.session_state.analyzed_df = None
@@ -183,16 +168,14 @@ with st.sidebar:
     if st.session_state.analyzed_df is not None:
         menu_options = ["📊 전체 리스트", "🤖 AI 엔지니어 리포트", "🏆 Rule-Based 추천", "🚨 Rule-Based 경고"]
         
-        # Key를 제거하고 Index로 제어
         selected_menu = st.radio(
             "분석 결과 보기", 
             menu_options, 
             index=st.session_state.menu_index
         )
-        # 사용자가 직접 클릭했을 때만 상태 업데이트
         if menu_options.index(selected_menu) != st.session_state.menu_index:
              st.session_state.menu_index = menu_options.index(selected_menu)
-             st.rerun() # 인덱스 변경 시 리런하여 뷰 갱신
+             st.rerun()
         
         st.divider()
 
@@ -247,7 +230,7 @@ with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded
         
         new_my_damage_amt = st.number_input("내차피해액(원)", min_value=0, step=10000, value=0)
         new_repair = st.text_area("수리내역 (중요)", placeholder="성능점검기록부의 수리내역을 입력하세요. (예: 후드 교환, 프론트휀더(우) 판금)")
-        new_option = st.text_area("옵션", placeholder="옵션 내용을 자유롭게 입력하세요. (예: 10.25인치 UVO 내비게이션 93만원, 파노라마 선루프 118만원)") # 옵션 입력 필드 추가
+        new_option = st.text_area("옵션", placeholder="옵션 내용을 자유롭게 입력하세요. (예: 10.25인치 UVO 내비게이션 93만원, 파노라마 선루프 118만원)")
 
         submitted = st.form_submit_button("매물 리스트에 추가")
         
@@ -261,7 +244,7 @@ with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded
                 '연식': new_year,
                 '최초 등록일': str(new_reg_date),
                 '주행거리(km)': new_km,
-                '옵션': new_option, # 옵션 데이터 포함
+                '옵션': new_option,
                 '수리내역': new_repair,
                 '특수용도이력': new_special,
                 '1인소유': new_one_owner,
