@@ -179,9 +179,9 @@ def generate_engineer_report(df, user_preference):
     # 현재 날짜
     current_date = datetime.now()
 
-    # 프롬프트에 넣을 데이터 요약 (옵션, 특수용도이력, 색상 컬럼 추가)
+    # 프롬프트에 넣을 데이터 요약 (옵션, 특수용도이력, 색상, 1인소유 컬럼 추가)
     # 필요한 컬럼이 있는지 확인하고 가져오기
-    cols_to_use = ['차량명', '엔진', '트림', '차량가격(만원)', '주행거리(km)', '연식', '최초 등록일', '색상', '특수용도이력', '옵션', '수리내역', '내차피해액', 'Tier', '분석결과']
+    cols_to_use = ['차량명', '엔진', '트림', '차량가격(만원)', '주행거리(km)', '연식', '최초 등록일', '색상', '특수용도이력', '1인소유', '옵션', '수리내역', '내차피해액', 'Tier', '분석결과']
     # 실제 존재하는 컬럼만 필터링
     cols_to_use = [c for c in cols_to_use if c in df.columns]
     
@@ -215,7 +215,7 @@ def generate_engineer_report(df, user_preference):
     col_map = {
         '차량명': 'Model', '엔진': 'Engine', '트림': 'Trim', '차량가격(만원)': 'Price', 
         '주행거리(km)': 'Mileage', '연식': 'Model Year', '최초 등록일': 'Registration Date',
-        '색상': 'Color', '특수용도이력': 'Special Use', '옵션': 'Option', 
+        '색상': 'Color', '특수용도이력': 'Special Use', '1인소유': 'Single Owner', '옵션': 'Option', 
         '수리내역': 'Repair History', '내차피해액': 'Own Damage Amount', 
         'Tier': 'Safety Tier', '분석결과': 'Analysis Summary', '경과개월수': 'Age(Months)'
     }
@@ -238,16 +238,18 @@ def generate_engineer_report(df, user_preference):
        - 단순히 주행거리가 짧다고 좋은 차가 아닙니다. 예를 들어, 1년에 1~2만km가 적정 주행거리입니다.
        - 연식 대비 주행거리가 너무 짧으면(장기 방치, 시내 주행 위주) 엔진 상태가 나쁠 수 있고, 너무 길면(택시, 영업용 등 혹사) 부품 마모가 심할 수 있습니다.
        - 예: "경과개월수 24개월에 100,000km"는 극심한 혹사 차량으로 평가해야 합니다. 반면 "60개월에 100,000km"는 정상적인 운행입니다.
-    4. **Option (옵션)**: 편의성에 큰 영향을 주며, 가성비 평가의 중요 요소입니다.
-    5. **Uncertainty (미확정)**: 'Repair History'나 'Own Damage Amount'에 **"미확정"** 키워드가 있다면 잠재적 위험이 매우 큽니다 (최소 Tier 2).
+    4. **Single Owner (1인소유)**:
+       - 'O' (1인소유)인 경우 관리 상태가 양호할 가능성이 높아 시장에서 선호합니다(플러스 요인).
+       - 'X' (소유자 변경)라고 해서 큰 문제가 있는 것은 아니지만, 1인소유 차량에 가산점을 부여하십시오.
+    5. **Option (옵션)**: 편의성에 큰 영향을 주며, 가성비 평가의 중요 요소입니다.
+    6. **Uncertainty (미확정)**: 'Repair History'나 'Own Damage Amount'에 **"미확정"** 키워드가 있다면 잠재적 위험이 매우 큽니다 (최소 Tier 2).
 
     **사용자 분석 성향:** {user_preference}
 
     **분석 기준:**
     1. **안전이 최우선**: 'Safety Tier'가 1인 차량은 절대 추천하지 않으며, 'Worst'로 분류해야 합니다.
-    2. **가성비 (Value for Money)**: 'Safety Tier'가 3인 차량 중 'Mileage', 'Price', 'Option', 'Color', 'Special Use'를 종합적으로 고려해 선정합니다.
-       - 특수용도이력이 없고, 인기 색상(흰/검)이며, 연식 대비 주행거리가 적절한 차가 베스트입니다.
-       - 반대로, 비인기 색상이거나 특수이력이 있어 가격이 싸다면 "가성비" 측면에서 접근할 수도 있습니다 (단, 위험성 고지 필요).
+    2. **가성비 (Value for Money)**: 'Safety Tier'가 3인 차량 중 'Mileage', 'Price', 'Option', 'Color', 'Special Use', 'Single Owner'를 종합적으로 고려해 선정합니다.
+       - 특수용도이력이 없고, 1인소유이며, 인기 색상(흰/검)이고, 연식 대비 주행거리가 적절한 차가 베스트입니다.
     3. **사용자 성향 반영**: "{user_preference}"에 맞춰 Top 3와 Worst 3를 선정하십시오.
     4. **정중한 태도**: 기계 공학적 지식을 바탕으로 하되, **모든 문장은 반드시 정중한 경어체(하십시오체 또는 해요체)를 사용하십시오.**
 
