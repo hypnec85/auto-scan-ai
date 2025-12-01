@@ -10,3 +10,6 @@ __pycache__/
 # Dependencies
 venv/
 .streamlit/
+
+# Local commands
+seteamlit_command.txt

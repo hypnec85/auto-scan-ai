@@ -4,6 +4,7 @@ import os
 import google.generativeai as genai
 from dotenv import load_dotenv
 import time
+from datetime import datetime
 
 # 환경 변수 로드 (API 키)
 load_dotenv(override=True)
@@ -175,16 +176,50 @@ def generate_engineer_report(df, user_preference):
         'gemini-2.0-flash-lite'
     ]
 
-    # 프롬프트에 넣을 데이터 요약 (옵션 컬럼 추가)
-    summary_df = df[['차량명', '엔진', '트림', '차량가격(만원)', '주행거리(km)', '연식', '옵션', '수리내역', '내차피해액', 'Tier', '분석결과']].copy()
+    # 현재 날짜
+    current_date = datetime.now()
+
+    # 프롬프트에 넣을 데이터 요약 (옵션, 특수용도이력, 색상 컬럼 추가)
+    # 필요한 컬럼이 있는지 확인하고 가져오기
+    cols_to_use = ['차량명', '엔진', '트림', '차량가격(만원)', '주행거리(km)', '연식', '최초 등록일', '색상', '특수용도이력', '옵션', '수리내역', '내차피해액', 'Tier', '분석결과']
+    # 실제 존재하는 컬럼만 필터링
+    cols_to_use = [c for c in cols_to_use if c in df.columns]
     
+    summary_df = df[cols_to_use].copy()
+    
+    # 차량 경과 개월 수 계산
+    def calculate_months(reg_date_str):
+        try:
+            reg_date = pd.to_datetime(reg_date_str)
+            # 날짜 형식이 잘못되었거나 NaT인 경우 처리
+            if pd.isna(reg_date):
+                return "Unknown"
+            return (current_date.year - reg_date.year) * 12 + (current_date.month - reg_date.month)
+        except:
+            return "Unknown"
+
+    if '최초 등록일' in summary_df.columns:
+        summary_df['경과개월수'] = summary_df['최초 등록일'].apply(calculate_months)
+    else:
+        summary_df['경과개월수'] = "Unknown"
+
     # 숫자만 있으면 LLM이 혼동할 수 있으므로 단위를 붙여 문자열로 변환
-    summary_df['차량가격(만원)'] = summary_df['차량가격(만원)'].astype(str) + "만원"
-    summary_df['주행거리(km)'] = summary_df['주행거리(km)'].astype(str) + "km"
-    summary_df['내차피해액'] = summary_df['내차피해액'].astype(str) + "원" 
+    if '차량가격(만원)' in summary_df.columns:
+        summary_df['차량가격(만원)'] = summary_df['차량가격(만원)'].astype(str) + "만원"
+    if '주행거리(km)' in summary_df.columns:
+        summary_df['주행거리(km)'] = summary_df['주행거리(km)'].astype(str) + "km"
+    if '내차피해액' in summary_df.columns:
+        summary_df['내차피해액'] = summary_df['내차피해액'].astype(str) + "원"
     
-    # 컬럼명도 'Option'으로 변경
-    summary_df.columns = ['Model', 'Engine', 'Trim', 'Price', 'Mileage', 'Model Year', 'Option', 'Repair History', 'Own Damage Amount', 'Safety Tier', 'Analysis Summary']
+    # 컬럼명 영문 변환 (LLM 인식 용이성)
+    col_map = {
+        '차량명': 'Model', '엔진': 'Engine', '트림': 'Trim', '차량가격(만원)': 'Price', 
+        '주행거리(km)': 'Mileage', '연식': 'Model Year', '최초 등록일': 'Registration Date',
+        '색상': 'Color', '특수용도이력': 'Special Use', '옵션': 'Option', 
+        '수리내역': 'Repair History', '내차피해액': 'Own Damage Amount', 
+        'Tier': 'Safety Tier', '분석결과': 'Analysis Summary', '경과개월수': 'Age(Months)'
+    }
+    summary_df = summary_df.rename(columns=col_map)
     
     data_str = summary_df.to_markdown()
 
@@ -192,19 +227,29 @@ def generate_engineer_report(df, user_preference):
     당신은 보수적이고 깐깐한 기계 공학자 출신의 중고차 전문가입니다. 
     다음 제공된 중고차 목록 데이터를 분석하여 구매자에게 리포트를 작성해 주세요.
 
-    **데이터 특성:**
-    - 제공된 목록에는 서로 다른 차종(Model), 엔진(Engine), 트림(Trim), 옵션(Option)이 섞여 있을 수 있습니다.
-    - 'Option' 컬럼의 내용은 차량의 기능성 및 편의성에 큰 영향을 주며, 중고차 가격 및 가성비 평가에 중요한 요소로 고려해야 합니다. 특히 고급 옵션이 많다면 가격이 높더라도 가성비가 좋을 수 있습니다.
-    - 'Repair History'나 'Own Damage Amount'에 **"미확정"**이라는 키워드가 있다면, 이는 정보의 불확실성을 나타내므로 해당 차량은 잠재적 위험이 크다고 판단하여 보수적으로 평가해 주십시오. (최소 Tier 2 경고 수준)
-    - 차종이 다르더라도 오직 '기계적 완성도', '안전성', '가성비' 관점에서 공정하게 평가해 주십시오.
+    **현재 날짜:** {current_date.strftime('%Y년 %m월 %d일')}
+
+    **데이터 특성 및 평가 가이드:**
+    1. **Special Use (특수용도이력)**: 'O'인 경우 렌터카, 리스, 영업용 이력이 있다는 뜻입니다. 
+       - 이는 다수의 운전자가 험하게 몰았을 가능성(관리 상태 불량)이 높으므로 감가 요인이 되며, 보수적으로 평가해야 합니다.
+    2. **Color (색상)**: 한국 중고차 시장에서는 **흰색, 검은색**이 가장 선호도가 높고 감가 방어에 유리합니다. 그 다음은 **은색/쥐색** 계열이며, **유채색(빨강, 파랑 등)**은 선호도가 낮아 감가가 큽니다. 이를 가성비 판단에 참고하십시오.
+    3. **Mileage vs Age (주행거리와 연식)**: 
+       - 'Age(Months)'는 최초 등록일로부터 현재까지의 경과 개월 수입니다.
+       - 단순히 주행거리가 짧다고 좋은 차가 아닙니다. 예를 들어, 1년에 1~2만km가 적정 주행거리입니다.
+       - 연식 대비 주행거리가 너무 짧으면(장기 방치, 시내 주행 위주) 엔진 상태가 나쁠 수 있고, 너무 길면(택시, 영업용 등 혹사) 부품 마모가 심할 수 있습니다.
+       - 예: "경과개월수 24개월에 100,000km"는 극심한 혹사 차량으로 평가해야 합니다. 반면 "60개월에 100,000km"는 정상적인 운행입니다.
+    4. **Option (옵션)**: 편의성에 큰 영향을 주며, 가성비 평가의 중요 요소입니다.
+    5. **Uncertainty (미확정)**: 'Repair History'나 'Own Damage Amount'에 **"미확정"** 키워드가 있다면 잠재적 위험이 매우 큽니다 (최소 Tier 2).
 
     **사용자 분석 성향:** {user_preference}
 
     **분석 기준:**
-    1. **안전이 최우선**: 'Safety Tier'가 1인 차량은 구조적 결함 가능성이 매우 높으므로 절대 추천하지 않으며, 'Worst'로 분류해야 합니다.
-    2. **가성비 (Value for Money)**: 'Safety Tier'가 3인 차량 중 'Mileage'가 짧고 'Price'가 합리적인 차량은 "단순 교환으로 인한 감가" 차량으로 간주하여 'Top'으로 추천합니다. '무사고' 차량보다 가성비가 좋을 수 있습니다.
-    3. **사용자 성향 반영**: 사용자의 '분석 성향'이 "{user_preference}"이므로, 이에 맞춰 Top 3와 Worst 3를 선정하고 코멘트를 작성해 주세요.
-    4. **전문적이지만 정중한 태도**: 기계 공학적 지식(프레임, 휠하우스 등)을 바탕으로 명확한 근거를 제시하되, **모든 문장은 반드시 정중한 경어체(하십시오체 또는 해요체)를 사용하십시오.** 반말이나 하대는 절대 금지입니다.
+    1. **안전이 최우선**: 'Safety Tier'가 1인 차량은 절대 추천하지 않으며, 'Worst'로 분류해야 합니다.
+    2. **가성비 (Value for Money)**: 'Safety Tier'가 3인 차량 중 'Mileage', 'Price', 'Option', 'Color', 'Special Use'를 종합적으로 고려해 선정합니다.
+       - 특수용도이력이 없고, 인기 색상(흰/검)이며, 연식 대비 주행거리가 적절한 차가 베스트입니다.
+       - 반대로, 비인기 색상이거나 특수이력이 있어 가격이 싸다면 "가성비" 측면에서 접근할 수도 있습니다 (단, 위험성 고지 필요).
+    3. **사용자 성향 반영**: "{user_preference}"에 맞춰 Top 3와 Worst 3를 선정하십시오.
+    4. **정중한 태도**: 기계 공학적 지식을 바탕으로 하되, **모든 문장은 반드시 정중한 경어체(하십시오체 또는 해요체)를 사용하십시오.**
 
     **요청 사항:**
     - **Top 3 추천 차량**: 가성비가 가장 훌륭한 차량 3대 선정 (원본 데이터의 인덱스 번호 포함). 추천 이유 상세 기술.
@@ -214,11 +259,11 @@ def generate_engineer_report(df, user_preference):
 
     **출력 형식:**
     # 🛠️ 엔지니어의 픽: Top 3 가성비 매물
-    1. **[인덱스 N] 차종 (가격 / 주행거리)**
+    1. **[N번] 차종 (가격 / 주행거리 / 색상)**
        - 💡 선정 이유: ... (경어체 사용)
     
     # 🚨 엔지니어의 경고: 절대 사면 안 되는 매물 (Worst 3)
-    1. **[인덱스 N] 차종 (가격 / 주행거리)**
+    1. **[N번] 차종 (가격 / 주행거리 / 색상)**
        - ⚠️ 위험 요소: ... (경어체 사용)
     
     # 📝 총평

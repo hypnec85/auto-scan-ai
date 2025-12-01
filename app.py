@@ -131,28 +131,40 @@ with st.sidebar:
     # 샘플 데이터 로드 버튼
     if os.path.exists("sample_data.csv"):
         if st.button("테스트용 데이터 로드"):
-            loaded_df = load_data("sample_data.csv")
-            if loaded_df is not None:
-                loaded_df = loaded_df.loc[:, ~loaded_df.columns.str.contains('^Unnamed')]
-                
-                for col in DEFAULT_COLUMNS.keys():
-                    if col not in loaded_df.columns:
-                        loaded_df[col] = DEFAULT_DATA.get(col, '')
-                    try:
-                        if col == '최초 등록일':
-                            loaded_df[col] = pd.to_datetime(loaded_df[col], errors='coerce').dt.strftime('%Y-%m-%d')
-                            loaded_df[col] = loaded_df[col].fillna('')
-                        elif DEFAULT_COLUMNS[col] == int: # DEFAULT_COLUMNS에서 int로 정의된 경우 처리
-                            loaded_df[col] = pd.to_numeric(loaded_df[col], errors='coerce').fillna(0).astype(int)
-                        else:
-                            loaded_df[col] = loaded_df[col].astype(DEFAULT_COLUMNS[col])
-                    except Exception as e:
-                        st.warning(f"경고: '{col}' 컬럼의 데이터 타입 변환 중 오류가 발생했습니다. 원인: {e} - 일부 데이터가 유실될 수 있습니다.")
-                
-                st.session_state.df = loaded_df
-                st.session_state.analyzed_df = None
-                st.session_state.form_expanded = False
-                st.success("샘플 데이터를 성공적으로 불러왔습니다.")
+            st.session_state.show_sample_warning = True
+
+    if st.session_state.get('show_sample_warning', False):
+        st.warning("⚠️ 테스트 데이터를 로드하면 현재 입력된 모든 정보가 사라집니다. 진행하시겠습니까?")
+        col_confirm_1, col_confirm_2 = st.columns(2)
+        with col_confirm_1:
+            if st.button("✅ 예, 로드합니다"):
+                st.session_state.show_sample_warning = False
+                loaded_df = load_data("sample_data.csv")
+                if loaded_df is not None:
+                    loaded_df = loaded_df.loc[:, ~loaded_df.columns.str.contains('^Unnamed')]
+                    
+                    for col in DEFAULT_COLUMNS.keys():
+                        if col not in loaded_df.columns:
+                            loaded_df[col] = DEFAULT_DATA.get(col, '')
+                        try:
+                            if col == '최초 등록일':
+                                loaded_df[col] = pd.to_datetime(loaded_df[col], errors='coerce').dt.strftime('%Y-%m-%d')
+                                loaded_df[col] = loaded_df[col].fillna('')
+                            elif DEFAULT_COLUMNS[col] == int: # DEFAULT_COLUMNS에서 int로 정의된 경우 처리
+                                loaded_df[col] = pd.to_numeric(loaded_df[col], errors='coerce').fillna(0).astype(int)
+                            else:
+                                loaded_df[col] = loaded_df[col].astype(DEFAULT_COLUMNS[col])
+                        except Exception as e:
+                            st.warning(f"경고: '{col}' 컬럼의 데이터 타입 변환 중 오류가 발생했습니다. 원인: {e} - 일부 데이터가 유실될 수 있습니다.")
+                    
+                    st.session_state.df = loaded_df
+                    st.session_state.analyzed_df = None
+                    st.session_state.form_expanded = False
+                    st.success("샘플 데이터를 성공적으로 불러왔습니다.")
+                    st.rerun()
+        with col_confirm_2:
+            if st.button("❌ 취소"):
+                st.session_state.show_sample_warning = False
                 st.rerun()
 
     st.divider()
@@ -358,7 +370,7 @@ if st.session_state.analyzed_df is not None:
         if recommendations.empty:
             st.warning("Tier 3 (단순 교환 무사고급) 매물이 없습니다.")
         else:
-            st.dataframe(recommendations[['차량명', '차량가격(만원)', '주행거리(km)', '연식', '수리내역', '분석결과']])
+            st.dataframe(recommendations[['차량명', '차량가격(만원)', '주행거리(km)', '연식', '수리내역', '특수용도이력', '분석결과']])
 
     # 4. Rule-Based 경고
     elif st.session_state.menu_index == 3:
@@ -372,3 +384,4 @@ if st.session_state.analyzed_df is not None:
                 with st.expander(f"🛑 {row['차량명']} ({row['차량가격(만원)']}만원) - 위험!", expanded=True):
                     st.write(f"**사유**: {row['분석결과']}")
                     st.write(f"**수리내역**: {row['수리내역']}")
+                    st.write(f"**특수용도이력**: {row['특수용도이력']}")
