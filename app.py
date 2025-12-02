@@ -35,7 +35,8 @@ DEFAULT_COLUMNS = {
     '1인소유': str,
     '내차피해액': int,
     '내차피해횟수': int,
-    '상대차피해횟수': int
+    '상대차피해횟수': int,
+    '_source': str
 }
 
 DEFAULT_DATA = {
@@ -45,7 +46,8 @@ DEFAULT_DATA = {
     '내차피해액': 0,
     '내차피해횟수': 0,
     '상대차피해횟수': 0,
-    '수리내역': ''
+    '수리내역': '',
+    '_source': 'manual'
 }
 
 # 세션 상태 초기화
@@ -55,7 +57,10 @@ else:
     # 기존 세션 데이터에 새로운 컬럼(예: 옵션)이 없는 경우 마이그레이션
     for col in DEFAULT_COLUMNS.keys():
         if col not in st.session_state.df.columns:
-            st.session_state.df[col] = DEFAULT_DATA.get(col, '')
+            if col == '_source':
+                st.session_state.df[col] = 'manual'
+            else:
+                st.session_state.df[col] = DEFAULT_DATA.get(col, '')
 
 if 'analyzed_df' not in st.session_state:
     st.session_state.analyzed_df = None
@@ -71,6 +76,12 @@ if 'user_preference' not in st.session_state:
     st.session_state.user_preference = "밸런스"
 if 'form_expanded' not in st.session_state: # 폼 확장 상태 제어
     st.session_state.form_expanded = True
+if 'confirm_delete_all' not in st.session_state:
+    st.session_state.confirm_delete_all = False
+if 'uploader_key' not in st.session_state:
+    st.session_state.uploader_key = 0
+if 'deleted_csv_rows' not in st.session_state: # 삭제된 CSV 행의 고유 시그니처 저장
+    st.session_state.deleted_csv_rows = set()
 
 # 콜백 함수
 def start_generation():
@@ -83,40 +94,92 @@ def reset_generation():
     st.session_state.generating_report = True
     st.session_state.menu_index = 1 
 
+def get_row_signature(row):
+    """행 데이터를 기반으로 고유 시그니처 생성 (중복 방지 및 식별용)"""
+    # 식별에 사용할 주요 컬럼들
+    cols = ['차량명', '차량가격(만원)', '주행거리(km)', '연식', '최초 등록일', '수리내역']
+    sig_parts = []
+    for c in cols:
+        val = row.get(c, '')
+        sig_parts.append(str(val))
+    return "_".join(sig_parts)
+
 def load_csv_file_callback():
-    uploaded_file_obj = st.session_state.uploaded_csv_file # key로 직접 접근
-    if uploaded_file_obj is not None:
-        loaded_df = load_data(uploaded_file_obj)
-        if loaded_df is not None:
-            loaded_df = loaded_df.loc[:, ~loaded_df.columns.str.contains('^Unnamed')]
+    # 동적 키를 사용하여 파일 객체 가져오기
+    key = f"uploaded_csv_files_{st.session_state.uploader_key}"
+    uploaded_file_objs = st.session_state.get(key) # key로 직접 접근 (리스트 반환)
+    
+    # 기존 데이터 중 수기 입력 데이터만 백업
+    current_manual_data = pd.DataFrame()
+    if not st.session_state.df.empty and '_source' in st.session_state.df.columns:
+        current_manual_data = st.session_state.df[st.session_state.df['_source'] == 'manual'].copy()
+    
+    # 새로 로드된 CSV 데이터 처리
+    new_csv_data = pd.DataFrame(columns=DEFAULT_COLUMNS.keys())
+    
+    if uploaded_file_objs:
+        all_dfs = []
+        for uploaded_file_obj in uploaded_file_objs:
+            loaded_df = load_data(uploaded_file_obj)
+            if loaded_df is not None:
+                loaded_df = loaded_df.loc[:, ~loaded_df.columns.str.contains('^Unnamed')]
+                loaded_df['_source'] = 'csv' # 소스 태그 추가
+                all_dfs.append(loaded_df)
+        
+        if all_dfs:
+            combined_csv_df = pd.concat(all_dfs, ignore_index=True)
             
+            # 컬럼 타입 맞추기 및 누락 컬럼 처리
             for col in DEFAULT_COLUMNS.keys():
-                if col not in loaded_df.columns:
-                    loaded_df[col] = DEFAULT_DATA.get(col, '')
+                if col not in combined_csv_df.columns:
+                    combined_csv_df[col] = DEFAULT_DATA.get(col, '')
                 try:
                     if col == '최초 등록일':
-                        loaded_df[col] = pd.to_datetime(loaded_df[col], errors='coerce').dt.strftime('%Y-%m-%d')
-                        loaded_df[col] = loaded_df[col].fillna('')
+                        combined_csv_df[col] = pd.to_datetime(combined_csv_df[col], errors='coerce').dt.strftime('%Y-%m-%d')
+                        combined_csv_df[col] = combined_csv_df[col].fillna('')
                     elif DEFAULT_COLUMNS[col] == int: # DEFAULT_COLUMNS에서 int로 정의된 경우 처리
-                        loaded_df[col] = pd.to_numeric(loaded_df[col], errors='coerce').fillna(0).astype(int)
+                        combined_csv_df[col] = pd.to_numeric(combined_csv_df[col], errors='coerce').fillna(0).astype(int)
                     else:
-                        loaded_df[col] = loaded_df[col].astype(DEFAULT_COLUMNS[col])
+                        combined_csv_df[col] = combined_csv_df[col].astype(DEFAULT_COLUMNS[col])
                 except Exception as e:
                     st.warning(f"경고: '{col}' 컬럼의 데이터 타입 변환 중 오류가 발생했습니다. 원인: {e} - 일부 데이터가 유실될 수 있습니다.")
             
-            st.session_state.df = loaded_df
-            st.session_state.analyzed_df = None
-            st.session_state.form_expanded = False # CSV 로드 시 폼 접기
-            st.success("데이터를 성공적으로 불러왔습니다. 재분석이 필요합니다.")
+            # 삭제된 이력 확인 및 필터링
+            if not combined_csv_df.empty:
+                rows_to_keep = []
+                for idx, row in combined_csv_df.iterrows():
+                    sig = get_row_signature(row)
+                    if sig not in st.session_state.deleted_csv_rows:
+                        rows_to_keep.append(row)
+                
+                if rows_to_keep:
+                    new_csv_data = pd.DataFrame(rows_to_keep)
+                else:
+                    new_csv_data = pd.DataFrame(columns=DEFAULT_COLUMNS.keys())
+
+            
+    # 수기 데이터와 CSV 데이터 병합
+    combined_df = pd.concat([current_manual_data, new_csv_data], ignore_index=True)
+    st.session_state.df = combined_df
+    st.session_state.analyzed_df = None
+    st.session_state.form_expanded = False # CSV 로드 시 폼 접기
+    
+    if not new_csv_data.empty:
+        st.success(f"총 {len(uploaded_file_objs)}개의 파일을 성공적으로 불러와 합쳤습니다. (삭제된 항목 제외, 수기 입력 데이터 {len(current_manual_data)}건 유지됨)")
+    elif not current_manual_data.empty:
+        st.info(f"업로드된 파일이 제거되었거나 모든 CSV 항목이 삭제 이력에 있습니다. 수기 입력 데이터 {len(current_manual_data)}건만 남았습니다.")
+    else:
+        st.info("모든 데이터가 초기화되었습니다.")
 
 # 사이드바 설정
 with st.sidebar:
     st.header("데이터 관리")
     
     # CSV 불러오기
-    st.file_uploader("CSV 파일 불러오기 (현재 데이터 덮어쓰기)", type=['csv'], 
+    st.file_uploader("CSV 파일들 불러오기 (현재 데이터 덮어쓰기)", type=['csv'], 
+                                         accept_multiple_files=True,
                                          on_change=load_csv_file_callback, 
-                                         key="uploaded_csv_file")
+                                         key=f"uploaded_csv_files_{st.session_state.uploader_key}")
     
     # CSV 내보내기
     if not st.session_state.df.empty:
@@ -142,6 +205,7 @@ with st.sidebar:
                 loaded_df = load_data("sample_data.csv")
                 if loaded_df is not None:
                     loaded_df = loaded_df.loc[:, ~loaded_df.columns.str.contains('^Unnamed')]
+                    loaded_df['_source'] = 'manual' # 샘플 데이터는 수기(manual) 취급
                     
                     for col in DEFAULT_COLUMNS.keys():
                         if col not in loaded_df.columns:
@@ -203,6 +267,8 @@ with st.sidebar:
         st.session_state.generating_report = False
         st.session_state.menu_index = 0
         st.session_state.form_expanded = True
+        st.session_state.uploader_key += 1 # 파일 업로더 초기화
+        st.session_state.deleted_csv_rows = set() # 삭제 이력 초기화
         st.rerun()
     
     with st.expander("Tier 시스템 가이드 보기"):
@@ -266,7 +332,8 @@ with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded
                 '1인소유': new_one_owner,
                 '내차피해액': new_my_damage_amt,
                 '내차피해횟수': new_my_damage_cnt,
-                '상대차피해횟수': new_other_damage_cnt
+                '상대차피해횟수': new_other_damage_cnt,
+                '_source': 'manual' # 수기 입력 표시
             }
             # DataFrame에 추가
             new_row = pd.DataFrame([new_data])
@@ -281,19 +348,57 @@ st.subheader(f"📋 현재 등록된 매물 리스트 ({len(st.session_state.df)
 
 # 데이터 삭제 기능
 if not st.session_state.df.empty:
-    with st.expander("🗑️ 매물 삭제하기"):
+    # 삭제 선택중이거나 전체 삭제 확인 중일 때 확장 유지
+    is_expanded = st.session_state.get('confirm_delete_all', False) or bool(st.session_state.get('delete_multiselect', []))
+    
+    with st.expander("🗑️ 매물 삭제하기", expanded=is_expanded):
         # 인덱스와 차량명으로 선택지 생성
         delete_options = [f"{i} : {row['차량명']} ({row['차량가격(만원)']}만원)" for i, row in st.session_state.df.iterrows()]
-        selected_to_delete = st.multiselect("삭제할 차량을 선택하세요:", delete_options)
+        selected_to_delete = st.multiselect("삭제할 차량을 선택하세요:", delete_options, key='delete_multiselect')
         
-        if st.button("선택한 차량 삭제"):
-            if selected_to_delete:
-                indices_to_drop = [int(opt.split(" :")[0]) for opt in selected_to_delete]
-                st.session_state.df = st.session_state.df.drop(indices_to_drop).reset_index(drop=True)
-                st.success("선택한 차량이 삭제되었습니다.")
+        col_del_1, col_del_2 = st.columns([1, 1])
+        with col_del_1:
+            if st.button("선택한 차량 삭제", use_container_width=True):
+                if selected_to_delete:
+                    indices_to_drop = [int(opt.split(" :")[0]) for opt in selected_to_delete]
+                    
+                    # 삭제되는 행들 중 CSV 출신인 경우 시그니처 저장
+                    for idx in indices_to_drop:
+                        if idx < len(st.session_state.df):
+                            row = st.session_state.df.iloc[idx]
+                            if row.get('_source') == 'csv':
+                                sig = get_row_signature(row)
+                                st.session_state.deleted_csv_rows.add(sig)
+
+                    st.session_state.df = st.session_state.df.drop(indices_to_drop).reset_index(drop=True)
+                    st.success("선택한 차량이 삭제되었습니다.")
+                    st.rerun()
+                else:
+                    st.warning("삭제할 차량을 선택해주세요.")
+        with col_del_2:
+            if st.button("전체 차량 삭제", type="primary", use_container_width=True):
+                st.session_state.confirm_delete_all = True
                 st.rerun()
-            else:
-                st.warning("삭제할 차량을 선택해주세요.")
+
+        if st.session_state.get('confirm_delete_all', False):
+            st.warning("⚠️ 정말로 모든 매물을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")
+            col_conf_1, col_conf_2 = st.columns(2)
+            with col_conf_1:
+                if st.button("✅ 예, 모두 삭제합니다", use_container_width=True):
+                    st.session_state.df = pd.DataFrame(columns=DEFAULT_COLUMNS.keys())
+                    st.session_state.analyzed_df = None
+                    st.session_state.ai_report = None
+                    st.session_state.ai_model_used = None
+                    st.session_state.generating_report = False
+                    st.session_state.confirm_delete_all = False
+                    st.session_state.uploader_key += 1
+                    st.session_state.deleted_csv_rows = set() # 전체 삭제 시 이력도 초기화
+                    st.success("모든 매물이 삭제되었습니다.")
+                    st.rerun()
+            with col_conf_2:
+                if st.button("❌ 취소", use_container_width=True):
+                    st.session_state.confirm_delete_all = False
+                    st.rerun()
 
 # 읽기 전용 DataFrame 표시
 st.dataframe(st.session_state.df, use_container_width=True)
