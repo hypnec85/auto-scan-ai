@@ -1,3 +1,4 @@
+import streamlit as st
 import pandas as pd
 import re
 import os
@@ -5,6 +6,9 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 import time
 from datetime import datetime
+import pickle
+import uuid
+import glob
 
 # 환경 변수 로드 (API 키)
 load_dotenv(override=True)
@@ -18,6 +22,70 @@ if GOOGLE_API_KEY:
     genai.configure(api_key=GOOGLE_API_KEY)
 else:
     print("Warning: GOOGLE_API_KEY not found in .env file. AI features will be disabled.")
+
+# --- 세션 데이터 관리 함수 ---
+def get_session_id():
+    """
+    현재 사용자의 고유 세션 ID를 생성하거나 가져옵니다.
+    Streamlit의 query_params를 활용하여 브라우저 새로고침 시에도 세션 ID를 유지합니다.
+    """
+    if "session_id" in st.query_params:
+        return st.query_params["session_id"]
+    else:
+        new_session_id = str(uuid.uuid4())
+        st.query_params["session_id"] = new_session_id
+        return new_session_id
+
+def save_session_data(session_id, df, deleted_rows):
+    """현재 세션의 데이터(DataFrame, 삭제 이력)를 서버의 임시 파일로 저장합니다."""
+    try:
+        filename = f"temp_data_{session_id}.pkl"
+        data_to_save = {
+            'df': df,
+            'deleted_rows': deleted_rows,
+            'timestamp': time.time()
+        }
+        with open(filename, 'wb') as f:
+            pickle.dump(data_to_save, f)
+        # print(f"Session data saved: {filename}") # 디버깅용
+    except Exception as e:
+        print(f"Error saving session data: {e}")
+
+def load_session_data(session_id):
+    """저장된 세션 데이터를 불러옵니다."""
+    filename = f"temp_data_{session_id}.pkl"
+    if os.path.exists(filename):
+        try:
+            with open(filename, 'rb') as f:
+                data = pickle.load(f)
+            # print(f"Session data loaded: {filename}") # 디버깅용
+            return data
+        except Exception as e:
+            print(f"Error loading session data: {e}")
+            return None
+    return None
+
+def clear_session_data(session_id):
+    """저장된 세션 파일을 삭제합니다."""
+    filename = f"temp_data_{session_id}.pkl"
+    if os.path.exists(filename):
+        try:
+            os.remove(filename)
+            # print(f"Session data cleared: {filename}") # 디버깅용
+        except Exception as e:
+            print(f"Error clearing session data: {e}")
+
+def cleanup_old_sessions(max_age_seconds=3600):
+    """오래된(예: 1시간 이상 지난) 세션 파일을 정리합니다."""
+    try:
+        now = time.time()
+        for filename in glob.glob("temp_data_*.pkl"):
+            if os.path.getmtime(filename) < now - max_age_seconds:
+                os.remove(filename)
+                print(f"Old session file removed: {filename}")
+    except Exception as e:
+        print(f"Error cleaning up old sessions: {e}")
+
 
 def load_data(file_path):
     """

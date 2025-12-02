@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import streamlit.components.v1 as components
-from utils import load_data, categorize_car, generate_engineer_report
+from utils import load_data, categorize_car, generate_engineer_report, get_session_id, save_session_data, load_session_data, clear_session_data, cleanup_old_sessions
 
 # 페이지 설정
 st.set_page_config(
@@ -10,6 +10,9 @@ st.set_page_config(
     page_icon="🚗",
     layout="wide"
 )
+
+# 앱 시작 시 오래된 세션 파일 정리
+cleanup_old_sessions()
 
 # --- 메인 타이틀 ---
 st.title("🚗 오토 스캔 (Auto Scan AI)")
@@ -50,9 +53,24 @@ DEFAULT_DATA = {
     '_source': 'manual'
 }
 
-# 세션 상태 초기화
+# 세션 상태 초기화 및 복구
+# get_session_id() 함수가 st.query_params를 자동으로 처리하므로,
+# 앱 로드 시점에 이 함수를 호출하여 session_id를 설정하거나 가져옵니다.
+session_id = get_session_id() # 이 함수 호출로 st.query_params가 설정됩니다.
+
+# st.session_state에 session_id를 저장하여 앱 내에서 일관되게 접근하도록 합니다.
+# 이 값은 query_params와 동기화됩니다.
+if 'session_id' not in st.session_state or st.session_state.session_id != session_id:
+    st.session_state.session_id = session_id
+
+# 저장된 데이터가 있으면 복구 (새로고침 시 유지)
+saved_data = load_session_data(st.session_state.session_id)
+
 if 'df' not in st.session_state or not isinstance(st.session_state.df, pd.DataFrame):
-    st.session_state.df = pd.DataFrame(columns=DEFAULT_COLUMNS.keys()) # 빈 DataFrame으로 초기화
+    if saved_data and 'df' in saved_data:
+        st.session_state.df = saved_data['df']
+    else:
+        st.session_state.df = pd.DataFrame(columns=DEFAULT_COLUMNS.keys())
 else:
     # 기존 세션 데이터에 새로운 컬럼(예: 옵션)이 없는 경우 마이그레이션
     for col in DEFAULT_COLUMNS.keys():
@@ -81,7 +99,14 @@ if 'confirm_delete_all' not in st.session_state:
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 if 'deleted_csv_rows' not in st.session_state: # 삭제된 CSV 행의 고유 시그니처 저장
-    st.session_state.deleted_csv_rows = set()
+    if saved_data and 'deleted_rows' in saved_data:
+        st.session_state.deleted_csv_rows = saved_data['deleted_rows']
+    else:
+        st.session_state.deleted_csv_rows = set()
+
+# 데이터 변경 시 자동 저장 함수
+def auto_save():
+    save_session_data(st.session_state.session_id, st.session_state.df, st.session_state.deleted_csv_rows)
 
 # 콜백 함수
 def start_generation():
@@ -164,6 +189,8 @@ def load_csv_file_callback():
     st.session_state.analyzed_df = None
     st.session_state.form_expanded = False # CSV 로드 시 폼 접기
     
+    auto_save() # 데이터 변경 후 자동 저장
+    
     if not new_csv_data.empty:
         st.success(f"총 {len(uploaded_file_objs)}개의 파일을 성공적으로 불러와 합쳤습니다. (삭제된 항목 제외, 수기 입력 데이터 {len(current_manual_data)}건 유지됨)")
     elif not current_manual_data.empty:
@@ -224,6 +251,7 @@ with st.sidebar:
                     st.session_state.df = loaded_df
                     st.session_state.analyzed_df = None
                     st.session_state.form_expanded = False
+                    auto_save() # 자동 저장
                     st.success("샘플 데이터를 성공적으로 불러왔습니다.")
                     st.rerun()
         with col_confirm_2:
@@ -269,6 +297,9 @@ with st.sidebar:
         st.session_state.form_expanded = True
         st.session_state.uploader_key += 1 # 파일 업로더 초기화
         st.session_state.deleted_csv_rows = set() # 삭제 이력 초기화
+        
+        clear_session_data(st.session_state.session_id) # 세션 파일도 삭제
+        
         st.rerun()
     
     with st.expander("Tier 시스템 가이드 보기"):
@@ -338,6 +369,9 @@ with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded
             # DataFrame에 추가
             new_row = pd.DataFrame([new_data])
             st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+            
+            auto_save() # 자동 저장
+            
             st.success(f"'{new_name}' 차량이 추가되었습니다!")
             st.rerun()
 
@@ -371,6 +405,9 @@ if not st.session_state.df.empty:
                                 st.session_state.deleted_csv_rows.add(sig)
 
                     st.session_state.df = st.session_state.df.drop(indices_to_drop).reset_index(drop=True)
+                    
+                    auto_save() # 자동 저장
+                    
                     st.success("선택한 차량이 삭제되었습니다.")
                     st.rerun()
                 else:
@@ -393,6 +430,9 @@ if not st.session_state.df.empty:
                     st.session_state.confirm_delete_all = False
                     st.session_state.uploader_key += 1
                     st.session_state.deleted_csv_rows = set() # 전체 삭제 시 이력도 초기화
+                    
+                    clear_session_data(st.session_state.session_id) # 세션 파일 삭제
+                    
                     st.success("모든 매물이 삭제되었습니다.")
                     st.rerun()
             with col_conf_2:
@@ -401,7 +441,7 @@ if not st.session_state.df.empty:
                     st.rerun()
 
 # 읽기 전용 DataFrame 표시
-st.dataframe(st.session_state.df, use_container_width=True)
+st.dataframe(st.session_state.df.drop(columns=['_source'], errors='ignore'), use_container_width=True)
 
 
 st.divider()
