@@ -320,15 +320,15 @@ with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             new_name = st.text_input("차량명", placeholder="예: 아반떼 CN7")
-            new_price = st.number_input("차량가격(만원)", min_value=0, step=10, value=0)
-        with col2:
             new_engine = st.text_input("엔진", placeholder="예: 가솔린 1.6")
-            new_year = st.number_input("연식", min_value=1900, max_value=2100, step=1, value=2020)
-        with col3:
+        with col2:
             new_trim = st.text_input("트림", placeholder="예: 인스퍼레이션")
-            new_km = st.number_input("주행거리(km)", min_value=0, step=1000, value=0)
-        with col4:
             new_color = st.text_input("색상", placeholder="예: 화이트")
+        with col3:
+            new_price = st.number_input("차량가격(만원)", min_value=0, step=10, value=0)
+            new_year = st.number_input("연식", min_value=1900, max_value=2100, step=1, value=2020)
+        with col4:
+            new_km = st.number_input("주행거리(km)", min_value=0, step=1000, value=0)
             new_reg_date = st.date_input("최초 등록일")
 
         col5, col6, col7, col8 = st.columns(4)

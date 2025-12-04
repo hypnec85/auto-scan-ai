@@ -4,6 +4,11 @@
 
 이 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)를 기반으로 하며, 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
+## [1.1.1] - 2025-12-04
+
+### 수정 (Fixed)
+- **UI**: 신규 매물 추가 폼의 입력 필드 순서를 사용자 작업 흐름에 맞게 재배치 (차량명 -> 엔진 -> 트림 -> 색상 -> 차량가격 -> 연식 -> 주행거리 -> 최초 등록일 -> ...).
+
 ## [1.1.0] - 2025-12-02
 
 ### 추가 (Added)
