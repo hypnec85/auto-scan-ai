@@ -6,27 +6,38 @@
 
 ## 1. 시스템 아키텍처 (System Architecture)
 
-Auto Scan AI는 **하이브리드 접근 방식(Hybrid Approach)**을 채택했습니다. 100% AI에 의존하지 않고, 명확한 규칙(Rule-based)으로 1차 필터링을 거친 후, AI가 정성적인 분석을 수행하는 구조입니다.
+Auto Scan AI는 **하이브리드 접근 방식(Hybrid Approach)**을 채택했습니다. 100% AI에 의존하지 않고, 명확한 규칙(Rule-based)으로 1차 필터링을 거친 후, AI가 정성적인 분석을 수행하는 구조입니다. 또한, 유지보수성과 확장성을 고려하여 기능별로 모듈화된 구조(Modular Monolith)를 갖추고 있습니다.
 
 ```mermaid
 graph TD
-    A[User Input (CSV / Form)] --> B(Data Preprocessing);
-    B --> C{Rule-based Engine};
-    C -->|Keyword Matching| D[Tier Classification];
-    D -->|Tier 1: Critical| E[Tag: Worst];
-    D -->|Tier 3: Cosmetic| F[Tag: Best Value];
+    User[User Input (CSV / Form)] --> App(app.py: Controller);
+    App --> UI[ui_components.py: View];
+    App --> Storage[storage.py: Persistence];
+    App --> Domain[domain_logic.py: Business Logic];
     
-    E & F --> G(Prompt Engineering);
-    G -->|Context + Data| H[Google Gemini LLM];
-    H --> I[Engineer Report];
-    I --> J[Streamlit UI];
+    Domain -->|Keyword Matching| Tier{Tier System};
+    Tier -->|Tier 1: Critical| Warning[Warning Tag];
+    Tier -->|Tier 3: Cosmetic| Reco[Recommend Tag];
+    
+    App --> AI[ai_service.py: AI Integration];
+    Warning & Reco --> AI;
+    AI -->|Prompt Engineering| Gemini[Google Gemini LLM];
+    Gemini --> Report[Engineer Report];
+    Report --> UI;
 ```
+
+### 1.1 모듈 구조 (Module Structure)
+*   **`app.py` (Controller)**: 애플리케이션의 진입점. 전체적인 흐름을 제어하고 상태를 관리하며, 각 모듈을 조율합니다.
+*   **`ui_components.py` (View)**: Streamlit 기반의 UI 렌더링을 전담합니다. 사이드바, 입력 폼, 결과 차트 등 재사용 가능한 UI 컴포넌트를 제공합니다.
+*   **`domain_logic.py` (Model)**: 순수 Python으로 작성된 핵심 비즈니스 로직입니다. `streamlit` 라이브러리에 의존하지 않아 단위 테스트가 용이합니다. (예: Tier 분류, 수리내역 파싱)
+*   **`storage.py` (Data Layer)**: 데이터 로드(CSV), 세션 상태 저장/복구(Pickle), 임시 파일 정리 등 데이터 지속성을 담당합니다.
+*   **`ai_service.py` (External Service)**: Google Gemini API와의 통신을 캡슐화했습니다. 프롬프트 구성, API 호출, 에러 처리 및 폴백 로직을 포함합니다.
 
 ---
 
 ## 2. Tier 분류 시스템 (Rule-based Logic)
 
-LLM은 때때로 사실이 아닌 정보를 생성(Hallucination)할 수 있습니다. 자동차의 **구조적 안전**과 관련된 문제는 0.1%의 오류도 허용될 수 없으므로, `utils.py` 내에 **정규표현식 기반의 엄격한 분류 로직**을 구현했습니다.
+LLM은 때때로 사실이 아닌 정보를 생성(Hallucination)할 수 있습니다. 자동차의 **구조적 안전**과 관련된 문제는 0.1%의 오류도 허용될 수 없으므로, `domain_logic.py` 내에 **정규표현식 기반의 엄격한 분류 로직**을 구현했습니다.
 
 ### Tier 1: 절대 구매 금지 (Structural Damage)
 자동차의 뼈대(프레임)가 손상된 차량입니다. 수리를 완벽하게 해도 주행 안정성이 떨어질 수 있습니다.

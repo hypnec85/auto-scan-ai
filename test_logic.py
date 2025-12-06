@@ -1,8 +1,9 @@
 import pandas as pd
-from utils import load_data, categorize_car
+from storage import load_data
+from domain_logic import categorize_car
 
 # 테스트할 CSV 파일 경로
-CSV_FILE_PATH = '중고차(20251128).csv'
+CSV_FILE_PATH = 'sample_data.csv'
 
 def run_logic_test():
     print(f"'{CSV_FILE_PATH}' 파일 로드 중...")

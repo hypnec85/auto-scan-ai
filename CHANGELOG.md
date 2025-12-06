@@ -4,6 +4,19 @@
 
 이 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)를 기반으로 하며, 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
+## [1.5.0] - 2025-12-06
+
+### 리팩토링 (Refactoring)
+- **모듈 분리**: 비대해진 `app.py`와 다목적 파일인 `utils.py`를 역할에 따라 4개의 독립적인 모듈로 분리하여 유지보수성과 확장성 향상.
+    - `domain_logic.py`: Tier 분류 시스템 등 핵심 비즈니스 로직 담당 (Pure Python).
+    - `storage.py`: CSV 로드, 세션 상태 저장/복구 등 데이터 지속성 관리.
+    - `ai_service.py`: Gemini API 통신 및 리포트 생성 로직 분리.
+    - `ui_components.py`: 사이드바, 입력 폼, 결과 뷰 등 재사용 가능한 UI 컴포넌트 분리.
+- **의존성 개선**:
+    - `domain_logic` 등 핵심 로직에서 `streamlit` 의존성을 제거하여 단위 테스트 용이성 확보.
+    - `utils.py` 삭제 및 각 기능별 모듈로 완전 대체.
+- **코드 정리**: `app.py`를 메인 컨트롤러 역할로 재정의하고 UI 렌더링 세부 사항을 `ui_components.py`로 위임하여 코드 가독성 대폭 개선.
+
 ## [1.4.3] - 2025-12-06
 
 ### 개선 (Improved)
