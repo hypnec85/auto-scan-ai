@@ -104,6 +104,23 @@ if 'deleted_csv_rows' not in st.session_state: # 삭제된 CSV 행의 고유 시
     else:
         st.session_state.deleted_csv_rows = set()
 
+# 신규 매물 폼 위젯 상태 초기화 (경고 방지 및 상태 관리)
+if 'add_name' not in st.session_state: st.session_state['add_name'] = ""
+if 'add_engine' not in st.session_state: st.session_state['add_engine'] = ""
+if 'add_trim' not in st.session_state: st.session_state['add_trim'] = ""
+if 'add_color' not in st.session_state: st.session_state['add_color'] = ""
+if 'add_price' not in st.session_state: st.session_state['add_price'] = 0
+if 'add_year' not in st.session_state: st.session_state['add_year'] = 2020
+if 'add_km' not in st.session_state: st.session_state['add_km'] = 0
+if 'add_reg_date' not in st.session_state: st.session_state['add_reg_date'] = pd.Timestamp.now().date()
+if 'add_special' not in st.session_state: st.session_state['add_special'] = "X"
+if 'add_one_owner' not in st.session_state: st.session_state['add_one_owner'] = "O"
+if 'add_my_damage_cnt' not in st.session_state: st.session_state['add_my_damage_cnt'] = 0
+if 'add_other_damage_cnt' not in st.session_state: st.session_state['add_other_damage_cnt'] = 0
+if 'add_my_damage_amt' not in st.session_state: st.session_state['add_my_damage_amt'] = 0
+if 'add_repair' not in st.session_state: st.session_state['add_repair'] = ""
+if 'add_option' not in st.session_state: st.session_state['add_option'] = ""
+
 # 데이터 변경 시 자동 저장 함수
 def auto_save():
     save_session_data(st.session_state.session_id, st.session_state.df, st.session_state.deleted_csv_rows)
@@ -310,80 +327,119 @@ with st.sidebar:
         - **Tier 3 (추천)**: 휀더, 도어 등 단순 외판 교환.
         """)
 
+# 콜백 함수 (매물 추가)
+def add_car_callback():
+    # 세션 상태에서 값 가져오기
+    new_name = st.session_state.get('add_name', '')
+    new_engine = st.session_state.get('add_engine', '')
+    new_trim = st.session_state.get('add_trim', '')
+    new_color = st.session_state.get('add_color', '')
+    new_price = st.session_state.get('add_price', 0)
+    new_year = st.session_state.get('add_year', 2020)
+    new_km = st.session_state.get('add_km', 0)
+    new_reg_date = st.session_state.get('add_reg_date', pd.Timestamp.now().date())
+    new_special = st.session_state.get('add_special', 'X')
+    new_one_owner = st.session_state.get('add_one_owner', 'O')
+    new_my_damage_cnt = st.session_state.get('add_my_damage_cnt', 0)
+    new_other_damage_cnt = st.session_state.get('add_other_damage_cnt', 0)
+    new_my_damage_amt = st.session_state.get('add_my_damage_amt', 0)
+    new_repair = st.session_state.get('add_repair', '')
+    new_option = st.session_state.get('add_option', '')
+
+    new_data = {
+        '차량명': new_name,
+        '엔진': new_engine,
+        '트림': new_trim,
+        '색상': new_color,
+        '차량가격(만원)': new_price,
+        '연식': new_year,
+        '최초 등록일': str(new_reg_date),
+        '주행거리(km)': new_km,
+        '옵션': new_option,
+        '수리내역': new_repair,
+        '특수용도이력': new_special,
+        '1인소유': new_one_owner,
+        '내차피해액': new_my_damage_amt,
+        '내차피해횟수': new_my_damage_cnt,
+        '상대차피해횟수': new_other_damage_cnt,
+        '_source': 'manual'
+    }
+    
+    # DataFrame에 추가
+    new_row = pd.DataFrame([new_data])
+    st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
+    
+    auto_save() # 자동 저장
+    
+    # 성공 메시지 설정
+    st.session_state['add_success_msg'] = f"✅ 차량 추가 완료: {new_name} ({new_price}만원 / {new_km:,}km / {new_color})"
+
+    # 입력 필드 초기화 (차량명, 엔진, 트림 제외하고 나머지 초기화)
+    st.session_state['add_color'] = ""
+    st.session_state['add_price'] = 0
+    st.session_state['add_year'] = 2020
+    st.session_state['add_km'] = 0
+    st.session_state['add_reg_date'] = pd.Timestamp.now().date()
+    st.session_state['add_special'] = "X"
+    st.session_state['add_one_owner'] = "O"
+    st.session_state['add_my_damage_cnt'] = 0
+    st.session_state['add_other_damage_cnt'] = 0
+    st.session_state['add_my_damage_amt'] = 0
+    st.session_state['add_repair'] = ""
+    st.session_state['add_option'] = ""
+
 # 메인 컨텐츠
 st.subheader("📝 매물 데이터 관리")
 
 # --- 1. 신규 매물 추가 Form ---
 with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded=st.session_state.form_expanded):
     st.info("아래 양식을 작성하여 리스트에 매물을 추가하세요.")
-    with st.form("add_car_form", clear_on_submit=True):
+    
+    # 성공 메시지가 있으면 표시하고 삭제
+    if 'add_success_msg' in st.session_state:
+        st.success(st.session_state['add_success_msg'])
+        del st.session_state['add_success_msg']
+
+    with st.form("add_car_form", clear_on_submit=False):
         # 1행
         r1_col1, r1_col2, r1_col3, r1_col4 = st.columns(4)
         with r1_col1:
-            new_name = st.text_input("차량명", placeholder="예: 아반떼 CN7")
+            new_name = st.text_input("차량명", placeholder="예: 아반떼 (CN7)", key="add_name")
         with r1_col2:
-            new_engine = st.text_input("엔진", placeholder="예: 가솔린 1.6")
+            new_engine = st.text_input("엔진", placeholder="예: 가솔린 1.6", key="add_engine")
         with r1_col3:
-            new_trim = st.text_input("트림", placeholder="예: 인스퍼레이션")
+            new_trim = st.text_input("트림", placeholder="예: 인스퍼레이션", key="add_trim")
         with r1_col4:
-            new_color = st.text_input("색상", placeholder="예: 화이트")
+            new_color = st.text_input("색상", placeholder="예: 흰색", key="add_color")
         
         # 2행
         r2_col1, r2_col2, r2_col3, r2_col4 = st.columns(4)
         with r2_col1:
-            new_price = st.number_input("차량가격(만원)", min_value=0, step=10, value=0)
+            new_price = st.number_input("차량가격(만원)", min_value=0, step=10, key="add_price")
         with r2_col2:
-            new_year = st.number_input("연식", min_value=1900, max_value=2100, step=1, value=2020)
+            new_year = st.number_input("연식", min_value=1900, max_value=2100, step=1, key="add_year")
         with r2_col3:
-            new_km = st.number_input("주행거리(km)", min_value=0, step=1000, value=0)
+            new_km = st.number_input("주행거리(km)", min_value=0, step=1000, key="add_km")
         with r2_col4:
-            new_reg_date = st.date_input("최초 등록일")
+            new_reg_date = st.date_input("최초 등록일", key="add_reg_date")
 
         # 3행
         r3_col1, r3_col2, r3_col3, r3_col4 = st.columns(4)
         with r3_col1:
-            new_special = st.selectbox("특수용도이력", ["X", "O"])
+            new_special = st.selectbox("특수용도이력", ["X", "O"], key="add_special")
         with r3_col2:
-            new_one_owner = st.selectbox("1인소유", ["O", "X"])
+            new_one_owner = st.selectbox("1인소유", ["O", "X"], key="add_one_owner")
         with r3_col3:
-            new_my_damage_cnt = st.number_input("내차피해횟수", min_value=0, step=1, value=0)
+            new_my_damage_cnt = st.number_input("내차피해횟수", min_value=0, step=1, key="add_my_damage_cnt")
         with r3_col4:
-            new_other_damage_cnt = st.number_input("상대차피해횟수", min_value=0, step=1, value=0)
+            new_other_damage_cnt = st.number_input("상대차피해횟수", min_value=0, step=1, key="add_other_damage_cnt")
         
         # 나머지 행
-        new_my_damage_amt = st.number_input("내차피해액(원)", min_value=0, step=10000, value=0)
-        new_repair = st.text_area("수리내역 (중요)", placeholder="성능점검기록부의 수리내역을 입력하세요. (예: 후드 교환, 프론트휀더(우) 판금)")
-        new_option = st.text_area("옵션", placeholder="옵션 내용을 자유롭게 입력하세요. (예: 10.25인치 UVO 내비게이션 93만원, 파노라마 선루프 118만원)")
+        new_my_damage_amt = st.number_input("내차피해액(원)", min_value=0, step=10000, key="add_my_damage_amt")
+        new_repair = st.text_area("수리내역 (중요)", placeholder="성능점검기록부의 수리내역을 입력하세요. (예: 후드 교환, 프론트휀더(우) 판금)", key="add_repair")
+        new_option = st.text_area("옵션", placeholder="옵션 내용을 자유롭게 입력하세요. (예: 10.25인치 UVO 내비게이션 93만원, 파노라마 선루프 118만원)", key="add_option")
 
-        submitted = st.form_submit_button("매물 리스트에 추가")
-        
-        if submitted:
-            new_data = {
-                '차량명': new_name,
-                '엔진': new_engine,
-                '트림': new_trim,
-                '색상': new_color,
-                '차량가격(만원)': new_price,
-                '연식': new_year,
-                '최초 등록일': str(new_reg_date),
-                '주행거리(km)': new_km,
-                '옵션': new_option,
-                '수리내역': new_repair,
-                '특수용도이력': new_special,
-                '1인소유': new_one_owner,
-                '내차피해액': new_my_damage_amt,
-                '내차피해횟수': new_my_damage_cnt,
-                '상대차피해횟수': new_other_damage_cnt,
-                '_source': 'manual' # 수기 입력 표시
-            }
-            # DataFrame에 추가
-            new_row = pd.DataFrame([new_data])
-            st.session_state.df = pd.concat([st.session_state.df, new_row], ignore_index=True)
-            
-            auto_save() # 자동 저장
-            
-            st.success(f"'{new_name}' 차량이 추가되었습니다!")
-            st.rerun()
+        st.form_submit_button("매물 리스트에 추가", on_click=add_car_callback)
 
 # --- 2. 매물 정보 수정 기능 ---
 if not st.session_state.df.empty:
