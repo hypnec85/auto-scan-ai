@@ -329,6 +329,36 @@ def generate_engineer_report(df, user_preference):
             lambda x: max(0, x['주요부품보증거리(km)'] - x['주행거리(km)']), axis=1
         )
 
+    # 보증 만료 정책 적용: 기간이나 거리 중 하나라도 만료(0)되면 둘 다 만료 처리
+    def sync_warranty_expiration(row, mon_col, km_col):
+        rem_mon = row.get(mon_col)
+        rem_km = row.get(km_col)
+        
+        # 날짜 정보가 없는 경우(Unknown) 처리
+        if rem_mon == "Unknown":
+            if rem_km == 0: # 거리가 만료되었으면 전체 만료
+                return 0, 0
+            return rem_mon, rem_km # 기간은 모르지만 거리는 남음 -> 유지
+            
+        # 둘 다 숫자인 경우
+        try:
+            if rem_mon <= 0 or rem_km <= 0:
+                return 0, 0
+        except:
+            pass # 비교 불가능한 경우 패스
+            
+        return rem_mon, rem_km
+
+    if '잔여일반보증(개월)' in summary_df.columns and '잔여일반보증(km)' in summary_df.columns:
+        gen_res = summary_df.apply(lambda x: sync_warranty_expiration(x, '잔여일반보증(개월)', '잔여일반보증(km)'), axis=1, result_type='expand')
+        summary_df['잔여일반보증(개월)'] = gen_res[0]
+        summary_df['잔여일반보증(km)'] = gen_res[1]
+
+    if '잔여주요보증(개월)' in summary_df.columns and '잔여주요보증(km)' in summary_df.columns:
+        maj_res = summary_df.apply(lambda x: sync_warranty_expiration(x, '잔여주요보증(개월)', '잔여주요보증(km)'), axis=1, result_type='expand')
+        summary_df['잔여주요보증(개월)'] = maj_res[0]
+        summary_df['잔여주요보증(km)'] = maj_res[1]
+
     # 입력용 보증 컬럼은 LLM에게 혼동을 줄 수 있으므로 삭제하고 잔여량만 제공 (또는 둘 다 제공)
     # 리포트 작성에는 잔여량이 중요하므로 잔여량 위주로 컬럼 정리
     # 기존 입력값은 삭제 (깔끔한 표를 위해)
@@ -374,6 +404,7 @@ def generate_engineer_report(df, user_preference):
     4. **Warranty (보증 잔여)**:
        - **Rem. Gen Warranty (일반부품 보증)** 및 **Rem. Major Warranty (주요부품 보증)** 정보가 포함되어 있습니다.
        - 잔여 보증이 남아있는 경우 수리비 리스크를 줄여주므로 긍정적인 요소이며, 보증이 만료되었다면 그만큼 차량 가격이 합리적이어야 합니다.
+       - **주의**: 보증 기간(개월)과 보증 거리(km) 중 하나라도 만료(0)되면 해당 보증은 완전히 만료된 것입니다.
     5. **Single Owner (1인소유)**: 'O' (1인소유)인 경우 관리 상태가 양호할 가능성이 높아 긍정적인 요소입니다.
     6. **Uncertainty (미확정)**: 'Repair History'나 'Own Damage Amount'에 "미확정" 키워드가 있다면 잠재적 위험이 큽니다.
 
