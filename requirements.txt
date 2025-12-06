@@ -3,3 +3,5 @@ pandas
 google-generativeai
 python-dotenv
 tabulate
+scikit-learn
+altair

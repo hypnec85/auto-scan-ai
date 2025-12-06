@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
 import streamlit.components.v1 as components
+from sklearn.linear_model import LinearRegression
+import altair as alt
 from utils import load_data, categorize_car, generate_engineer_report, get_session_id, save_session_data, load_session_data, clear_session_data, cleanup_old_sessions
 
 # 페이지 설정
@@ -303,7 +306,7 @@ with st.sidebar:
 
     # 분석 결과 메뉴 (분석된 데이터가 있을 때만 표시)
     if st.session_state.analyzed_df is not None:
-        menu_options = ["📊 전체 리스트", "🤖 AI 엔지니어 리포트", "🏆 Rule-Based 추천", "🚨 Rule-Based 경고"]
+        menu_options = ["📊 전체 리스트", "🤖 AI 엔지니어 리포트", "🏆 Rule-Based 추천", "🚨 Rule-Based 경고", "📈 심층 가격 분석"]
         
         selected_menu = st.radio(
             "분석 결과 보기", 
@@ -725,3 +728,104 @@ if st.session_state.analyzed_df is not None:
                     st.write(f"**사유**: {row['분석결과']}")
                     st.write(f"**수리내역**: {row['수리내역']}")
                     st.write(f"**특수용도이력**: {row['특수용도이력']}")
+
+    # 5. 심층 가격 분석 (Deep Price Analysis)
+    elif st.session_state.menu_index == 4:
+        st.subheader("📈 심층 가격 분석 (다변량 회귀)")
+        st.info("연식, 주행거리, 사고 여부가 가격에 미치는 영향을 분석하여 '진짜 가성비'를 찾습니다.")
+
+        # 1. 차종 선택
+        unique_models = df['차량명'].unique()
+        selected_model = st.selectbox("분석할 차종을 선택하세요", unique_models)
+
+        # 데이터 필터링
+        model_df = df[df['차량명'] == selected_model].copy()
+
+        # 최소 샘플 확인
+        if len(model_df) < 10:
+            st.error(f"데이터 부족: '{selected_model}'의 매물이 {len(model_df)}개뿐입니다. 정밀 분석을 위해 최소 10개 이상의 데이터가 필요합니다.")
+        else:
+            # 2. 데이터 전처리 (사고 여부 변수 생성)
+            major_accident_keywords = [
+                '휠하우스', '인사이드패널', '사이드멤버', '플로어패널', '대쉬패널', '필러', 
+                '루프패널', '트렁크플로어', '백판넬', '리어패널', '프런트패널', '리어액슬', 
+                '쿼터패널', '패널 앗세이'
+            ]
+            
+            def check_major_accident(repair_history):
+                for keyword in major_accident_keywords:
+                    if keyword in str(repair_history):
+                        return 1
+                return 0
+
+            model_df['Is_Major_Accident'] = model_df['수리내역'].apply(check_major_accident)
+            
+            # 회귀 분석 준비
+            X = model_df[['연식', '주행거리(km)', 'Is_Major_Accident']]
+            y = model_df['차량가격(만원)']
+            
+            # 3. 다중 회귀분석 수행
+            reg = LinearRegression()
+            reg.fit(X, y)
+            
+            # 계수 추출
+            coef_year = reg.coef_[0]
+            coef_mileage = reg.coef_[1]
+            coef_accident = reg.coef_[2]
+            
+            # 4. 시장 가치 지표 출력
+            m1, m2, m3 = st.columns(3)
+            m1.metric("📅 1년의 가치", f"{coef_year:.1f}만원", delta_color="normal")
+            m2.metric("🚗 주행의 대가 (1만km)", f"{coef_mileage * 10000:.1f}만원", delta_color="inverse")
+            m3.metric("💥 사고의 감가", f"{coef_accident:.1f}만원", delta_color="inverse")
+            
+            # 5. 시각화 (Altair)
+            # 적정가 예측
+            model_df['예측가격'] = reg.predict(X)
+            model_df['가격차이'] = model_df['차량가격(만원)'] - model_df['예측가격']
+            
+            # 차트 생성
+            chart = alt.Chart(model_df).mark_point(filled=True, size=100).encode(
+                x=alt.X('주행거리(km)', title='주행거리 (km)'),
+                y=alt.Y('차량가격(만원)', title='가격 (만원)'),
+                color=alt.Color('연식', scale=alt.Scale(scheme='viridis'), title='연식'),
+                shape=alt.Shape('Is_Major_Accident:N', title='사고 여부', legend=alt.Legend(labelExpr="datum.value == 0 ? '무사고' : '사고'")),
+                tooltip=['차량명', '차량가격(만원)', '연식', '주행거리(km)', '수리내역', '가격차이']
+            ).interactive()
+            
+            # 적정가 추세선 (무사고 기준)
+            clean_df = model_df[model_df['Is_Major_Accident'] == 0]
+            if len(clean_df) > 1:
+                # Simple regression for the line: Price ~ Mileage
+                reg_clean = LinearRegression()
+                reg_clean.fit(clean_df[['주행거리(km)']], clean_df['차량가격(만원)'])
+                
+                # Line data generation
+                x_min = model_df['주행거리(km)'].min()
+                x_max = model_df['주행거리(km)'].max()
+                # 구간을 잘게 쪼개서 툴팁이 선 위 어디서든 잘 뜨게 함
+                x_range = np.linspace(x_min, x_max, 20)
+                line_data = pd.DataFrame({'주행거리(km)': x_range})
+                line_data['차량가격(만원)'] = reg_clean.predict(line_data[['주행거리(km)']])
+                line_data['정보'] = "무사고 기준 적정 시세"
+                
+                line_chart = alt.Chart(line_data).mark_line(color='red', strokeDash=[5, 5], size=3).encode(
+                    x='주행거리(km)',
+                    y='차량가격(만원)',
+                    tooltip=['정보', alt.Tooltip('차량가격(만원)', format=',.0f')]
+                )
+                
+                st.altair_chart(chart + line_chart, use_container_width=True)
+            else:
+                st.altair_chart(chart, use_container_width=True)
+                st.warning("무사고 차량 데이터가 부족하여 적정 시세선을 그릴 수 없습니다.")
+
+            # 6. 저평가 매물 하이라이트 (적정가보다 실제가가 50만원 이상 낮은 경우)
+            # 가격차이 = 실제가 - 예측가 < -50
+            good_deals = model_df[model_df['가격차이'] < -50].sort_values(by='가격차이')
+            
+            st.subheader("💎 발견된 가성비 매물 (Good Deal)")
+            if not good_deals.empty:
+                st.dataframe(good_deals[['차량명', '차량가격(만원)', '예측가격', '가격차이', '연식', '주행거리(km)', '수리내역']].style.format("{:.1f}", subset=['예측가격', '가격차이']))
+            else:
+                st.info("현재 기준 현저하게 저평가된 매물이 없습니다.")
