@@ -4,6 +4,12 @@
 
 이 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)를 기반으로 하며, 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
+## [1.4.3] - 2025-12-06
+
+### 개선 (Improved)
+- **사고 등급(Tier) 분류 로직 개선**:
+    - "쇽업소버", "로우암" 및 이들의 일반적인 동의어("쇼바", "댐퍼", "로워암", "컨트롤 암")를 Tier 2 키워드에 추가하여, 해당 부위 손상 시 잠재적 위험을 경고하도록 로직 강화.
+
 ## [1.4.2] - 2025-12-06
 
 ### 수정 (Fixed)
