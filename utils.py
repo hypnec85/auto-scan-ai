@@ -249,7 +249,11 @@ def generate_engineer_report(df, user_preference):
 
     # 프롬프트에 넣을 데이터 요약 (옵션, 특수용도이력, 색상, 1인소유 컬럼 추가)
     # 필요한 컬럼이 있는지 확인하고 가져오기
-    cols_to_use = ['차량명', '엔진', '트림', '차량가격(만원)', '주행거리(km)', '연식', '최초 등록일', '색상', '특수용도이력', '1인소유', '옵션', '수리내역', '내차피해액', 'Tier', '분석결과']
+    cols_to_use = [
+        '차량명', '엔진', '트림', '차량가격(만원)', '주행거리(km)', '연식', '최초 등록일', 
+        '색상', '특수용도이력', '1인소유', '옵션', '수리내역', '내차피해액', 'Tier', '분석결과',
+        '일반부품보증기간(개월)', '일반부품보증거리(km)', '주요부품보증기간(개월)', '주요부품보증거리(km)'
+    ]
     # 실제 존재하는 컬럼만 필터링
     cols_to_use = [c for c in cols_to_use if c in df.columns]
     
@@ -261,15 +265,42 @@ def generate_engineer_report(df, user_preference):
             reg_date = pd.to_datetime(reg_date_str)
             # 날짜 형식이 잘못되었거나 NaT인 경우 처리
             if pd.isna(reg_date):
-                return "Unknown"
+                return None
             return (current_date.year - reg_date.year) * 12 + (current_date.month - reg_date.month)
         except:
-            return "Unknown"
+            return None
 
     if '최초 등록일' in summary_df.columns:
         summary_df['경과개월수'] = summary_df['최초 등록일'].apply(calculate_months)
     else:
-        summary_df['경과개월수'] = "Unknown"
+        summary_df['경과개월수'] = None
+
+    # 잔여 보증 기간/거리 계산
+    # 일반부품
+    if '일반부품보증기간(개월)' in summary_df.columns and '경과개월수' in summary_df.columns:
+        summary_df['잔여일반보증(개월)'] = summary_df.apply(
+            lambda x: max(0, x['일반부품보증기간(개월)'] - x['경과개월수']) if x['경과개월수'] is not None else "Unknown", axis=1
+        )
+    if '일반부품보증거리(km)' in summary_df.columns and '주행거리(km)' in summary_df.columns:
+        summary_df['잔여일반보증(km)'] = summary_df.apply(
+            lambda x: max(0, x['일반부품보증거리(km)'] - x['주행거리(km)']), axis=1
+        )
+        
+    # 주요부품
+    if '주요부품보증기간(개월)' in summary_df.columns and '경과개월수' in summary_df.columns:
+        summary_df['잔여주요보증(개월)'] = summary_df.apply(
+            lambda x: max(0, x['주요부품보증기간(개월)'] - x['경과개월수']) if x['경과개월수'] is not None else "Unknown", axis=1
+        )
+    if '주요부품보증거리(km)' in summary_df.columns and '주행거리(km)' in summary_df.columns:
+        summary_df['잔여주요보증(km)'] = summary_df.apply(
+            lambda x: max(0, x['주요부품보증거리(km)'] - x['주행거리(km)']), axis=1
+        )
+
+    # 입력용 보증 컬럼은 LLM에게 혼동을 줄 수 있으므로 삭제하고 잔여량만 제공 (또는 둘 다 제공)
+    # 리포트 작성에는 잔여량이 중요하므로 잔여량 위주로 컬럼 정리
+    # 기존 입력값은 삭제 (깔끔한 표를 위해)
+    drop_cols = ['일반부품보증기간(개월)', '일반부품보증거리(km)', '주요부품보증기간(개월)', '주요부품보증거리(km)']
+    summary_df = summary_df.drop(columns=[c for c in drop_cols if c in summary_df.columns])
 
     # 숫자만 있으면 LLM이 혼동할 수 있으므로 단위를 붙여 문자열로 변환
     if '차량가격(만원)' in summary_df.columns:
@@ -285,7 +316,9 @@ def generate_engineer_report(df, user_preference):
         '주행거리(km)': 'Mileage', '연식': 'Model Year', '최초 등록일': 'Registration Date',
         '색상': 'Color', '특수용도이력': 'Special Use', '1인소유': 'Single Owner', '옵션': 'Option', 
         '수리내역': 'Repair History', '내차피해액': 'Own Damage Amount', 
-        'Tier': 'Safety Tier', '분석결과': 'Analysis Summary', '경과개월수': 'Age(Months)'
+        'Tier': 'Safety Tier', '분석결과': 'Analysis Summary', '경과개월수': 'Age(Months)',
+        '잔여일반보증(개월)': 'Rem. Gen Warranty(Mon)', '잔여일반보증(km)': 'Rem. Gen Warranty(Km)',
+        '잔여주요보증(개월)': 'Rem. Major Warranty(Mon)', '잔여주요보증(km)': 'Rem. Major Warranty(Km)'
     }
     summary_df = summary_df.rename(columns=col_map)
     
@@ -305,39 +338,37 @@ def generate_engineer_report(df, user_preference):
        - 'Age(Months)'는 최초 등록일로부터 현재까지의 경과 개월 수입니다.
        - 단순히 주행거리가 짧다고 좋은 차가 아닙니다. 예를 들어, 1년에 1~2만km가 적정 주행거리입니다.
        - 연식 대비 주행거리가 너무 짧으면(장기 방치, 시내 주행 위주) 엔진 상태가 나쁠 수 있고, 너무 길면(택시, 영업용 등 혹사) 부품 마모가 심할 수 있습니다.
-       - 예: "경과개월수 24개월에 100,000km"는 극심한 혹사 차량으로 평가해야 합니다. 반면 "60개월에 100,000km"는 정상적인 운행입니다.
-    4. **Single Owner (1인소유)**:
-       - 'O' (1인소유)인 경우 관리 상태가 양호할 가능성이 높아 시장에서 선호합니다(플러스 요인).
-       - 'X' (소유자 변경)라고 해서 큰 문제가 있는 것은 아니지만, 1인소유 차량에 가산점을 부여하십시오.
-    5. **Option (옵션)**: 편의성에 큰 영향을 주며, 가성비 평가의 중요 요소입니다.
-    6. **Uncertainty (미확정)**: 'Repair History'나 'Own Damage Amount'에 **"미확정"** 키워드가 있다면 잠재적 위험이 매우 큽니다 (최소 Tier 2).
+    4. **Warranty (보증 잔여)**:
+       - **Rem. Gen Warranty (일반부품 보증)** 및 **Rem. Major Warranty (주요부품 보증)** 정보가 포함되어 있습니다.
+       - 잔여 보증이 남아있는 경우 수리비 리스크를 줄여주므로 긍정적인 요소이며, 보증이 만료되었다면 그만큼 차량 가격이 합리적이어야 합니다.
+    5. **Single Owner (1인소유)**: 'O' (1인소유)인 경우 관리 상태가 양호할 가능성이 높아 긍정적인 요소입니다.
+    6. **Uncertainty (미확정)**: 'Repair History'나 'Own Damage Amount'에 "미확정" 키워드가 있다면 잠재적 위험이 큽니다.
 
     **사용자 분석 성향:** {user_preference}
 
     **분석 기준:**
     1. **안전이 최우선**: 'Safety Tier'가 1인 차량은 절대 추천하지 않으며, 'Worst'로 분류해야 합니다.
-    2. **가성비 (Value for Money)**: 'Safety Tier'가 3인 차량 중 'Mileage', 'Price', 'Option', 'Color', 'Special Use', 'Single Owner'를 종합적으로 고려해 선정합니다.
-       - 특수용도이력이 없고, 1인소유이며, 인기 색상(흰/검)이고, 연식 대비 주행거리가 적절한 차가 베스트입니다.
+    2. **가성비 (Value for Money)**: 'Safety Tier'가 3인 차량 중 'Mileage', 'Price', 'Warranty', 'Option', 'Special Use', 'Single Owner' 등을 종합적으로 고려합니다. 각 요소의 중요도는 사용자 분석 성향에 따라 조절하십시오.
     3. **사용자 성향 반영**: "{user_preference}"에 맞춰 Top 3와 Worst 3를 선정하십시오.
     4. **정중한 태도**: 기계 공학적 지식을 바탕으로 하되, **모든 문장은 반드시 정중한 경어체(하십시오체 또는 해요체)를 사용하십시오.**
 
     **요청 사항:**
-    - **Top 3 추천 차량**: 가성비가 가장 훌륭한 차량 3대 선정 (원본 데이터의 인덱스 번호 포함). 추천 이유 상세 기술.
-    - **Worst 3 경고 차량**: 가장 위험하고 돈 낭비인 차량 3대 선정 (원본 데이터의 인덱스 번호 포함). 비추천 이유 상세 기술.
+    - **Top 3 추천 차량**: 가성비 및 보증 혜택이 훌륭한 차량 3대 선정. 추천 이유 상세 기술.
+    - **Worst 3 경고 차량**: 위험하고 가성비 나쁜 차량 3대 선정. 비추천 이유 상세 기술.
     - 데이터:
     {data_str}
 
     **출력 형식:**
     # 🛠️ 엔지니어의 픽: Top 3 가성비 매물
     1. **[N번] 차종 (가격 / 주행거리 / 색상)**
-       - 💡 선정 이유: ... (경어체 사용)
+       - 💡 선정 이유: ...
     
     # 🚨 엔지니어의 경고: 절대 사면 안 되는 매물 (Worst 3)
     1. **[N번] 차종 (가격 / 주행거리 / 색상)**
-       - ⚠️ 위험 요소: ... (경어체 사용)
+       - ⚠️ 위험 요소: ...
     
     # 📝 총평
-    ... (경어체 사용)
+    ...
     """
 
     last_error = None

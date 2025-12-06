@@ -39,6 +39,10 @@ DEFAULT_COLUMNS = {
     '내차피해액': int,
     '내차피해횟수': int,
     '상대차피해횟수': int,
+    '일반부품보증기간(개월)': int,
+    '일반부품보증거리(km)': int,
+    '주요부품보증기간(개월)': int,
+    '주요부품보증거리(km)': int,
     '_source': str
 }
 
@@ -50,6 +54,10 @@ DEFAULT_DATA = {
     '내차피해횟수': 0,
     '상대차피해횟수': 0,
     '수리내역': '',
+    '일반부품보증기간(개월)': 36,
+    '일반부품보증거리(km)': 60000,
+    '주요부품보증기간(개월)': 60,
+    '주요부품보증거리(km)': 100000,
     '_source': 'manual'
 }
 
@@ -120,6 +128,10 @@ if 'add_other_damage_cnt' not in st.session_state: st.session_state['add_other_d
 if 'add_my_damage_amt' not in st.session_state: st.session_state['add_my_damage_amt'] = 0
 if 'add_repair' not in st.session_state: st.session_state['add_repair'] = ""
 if 'add_option' not in st.session_state: st.session_state['add_option'] = ""
+if 'add_war_gen_mon' not in st.session_state: st.session_state['add_war_gen_mon'] = 36
+if 'add_war_gen_km' not in st.session_state: st.session_state['add_war_gen_km'] = 60000
+if 'add_war_maj_mon' not in st.session_state: st.session_state['add_war_maj_mon'] = 60
+if 'add_war_maj_km' not in st.session_state: st.session_state['add_war_maj_km'] = 100000
 
 # 데이터 변경 시 자동 저장 함수
 def auto_save():
@@ -345,6 +357,10 @@ def add_car_callback():
     new_my_damage_amt = st.session_state.get('add_my_damage_amt', 0)
     new_repair = st.session_state.get('add_repair', '')
     new_option = st.session_state.get('add_option', '')
+    new_war_gen_mon = st.session_state.get('add_war_gen_mon', 36)
+    new_war_gen_km = st.session_state.get('add_war_gen_km', 60000)
+    new_war_maj_mon = st.session_state.get('add_war_maj_mon', 60)
+    new_war_maj_km = st.session_state.get('add_war_maj_km', 100000)
 
     new_data = {
         '차량명': new_name,
@@ -362,6 +378,10 @@ def add_car_callback():
         '내차피해액': new_my_damage_amt,
         '내차피해횟수': new_my_damage_cnt,
         '상대차피해횟수': new_other_damage_cnt,
+        '일반부품보증기간(개월)': new_war_gen_mon,
+        '일반부품보증거리(km)': new_war_gen_km,
+        '주요부품보증기간(개월)': new_war_maj_mon,
+        '주요부품보증거리(km)': new_war_maj_km,
         '_source': 'manual'
     }
     
@@ -375,6 +395,7 @@ def add_car_callback():
     st.session_state['add_success_msg'] = f"✅ 차량 추가 완료: {new_name} ({new_price}만원 / {new_km:,}km / {new_color})"
 
     # 입력 필드 초기화 (차량명, 엔진, 트림 제외하고 나머지 초기화)
+    # 보증 기간/거리는 초기화하지 않고 유지 (Sticky)
     st.session_state['add_color'] = ""
     st.session_state['add_price'] = 0
     st.session_state['add_year'] = 2020
@@ -434,6 +455,18 @@ with st.expander("➕ 신규 매물 직접 추가하기 (Form 입력)", expanded
         with r3_col4:
             new_other_damage_cnt = st.number_input("상대차피해횟수", min_value=0, step=1, key="add_other_damage_cnt")
         
+        # 4행 (보증기간)
+        
+        r4_col1, r4_col2, r4_col3, r4_col4 = st.columns(4)
+        with r4_col1:
+            st.number_input("일반부품 보증(개월)", min_value=0, step=1, key="add_war_gen_mon")
+        with r4_col2:
+            st.number_input("일반부품 보증(km)", min_value=0, step=1000, key="add_war_gen_km")
+        with r4_col3:
+            st.number_input("주요부품 보증(개월)", min_value=0, step=1, key="add_war_maj_mon")
+        with r4_col4:
+            st.number_input("주요부품 보증(km)", min_value=0, step=1000, key="add_war_maj_km")
+
         # 나머지 행
         new_my_damage_amt = st.number_input("내차피해액(원)", min_value=0, step=10000, key="add_my_damage_amt")
         new_repair = st.text_area("수리내역 (중요)", placeholder="성능점검기록부의 수리내역을 입력하세요. (예: 후드 교환, 프론트휀더(우) 판금)", key="add_repair")
@@ -495,6 +528,18 @@ if not st.session_state.df.empty:
                 with er3_col4:
                     edit_other_damage_cnt = st.number_input("상대차피해횟수", min_value=0, step=1, value=int(selected_row['상대차피해횟수']))
                 
+                # 4행 (보증기간)
+                st.caption("🛡️ 보증 정보 수정")
+                er4_col1, er4_col2, er4_col3, er4_col4 = st.columns(4)
+                with er4_col1:
+                    edit_war_gen_mon = st.number_input("일반부품 보증(개월)", min_value=0, step=1, value=int(selected_row.get('일반부품보증기간(개월)', 36)))
+                with er4_col2:
+                    edit_war_gen_km = st.number_input("일반부품 보증(km)", min_value=0, step=1000, value=int(selected_row.get('일반부품보증거리(km)', 60000)))
+                with er4_col3:
+                    edit_war_maj_mon = st.number_input("주요부품 보증(개월)", min_value=0, step=1, value=int(selected_row.get('주요부품보증기간(개월)', 60)))
+                with er4_col4:
+                    edit_war_maj_km = st.number_input("주요부품 보증(km)", min_value=0, step=1000, value=int(selected_row.get('주요부품보증거리(km)', 100000)))
+
                 # 나머지 행
                 edit_my_damage_amt = st.number_input("내차피해액(원)", min_value=0, step=10000, value=int(selected_row['내차피해액']))
                 edit_repair = st.text_area("수리내역 (중요)", value=selected_row['수리내역'])
@@ -515,6 +560,10 @@ if not st.session_state.df.empty:
                     st.session_state.df.at[selected_idx, '내차피해횟수'] = edit_my_damage_cnt
                     st.session_state.df.at[selected_idx, '상대차피해횟수'] = edit_other_damage_cnt
                     st.session_state.df.at[selected_idx, '내차피해액'] = edit_my_damage_amt
+                    st.session_state.df.at[selected_idx, '일반부품보증기간(개월)'] = edit_war_gen_mon
+                    st.session_state.df.at[selected_idx, '일반부품보증거리(km)'] = edit_war_gen_km
+                    st.session_state.df.at[selected_idx, '주요부품보증기간(개월)'] = edit_war_maj_mon
+                    st.session_state.df.at[selected_idx, '주요부품보증거리(km)'] = edit_war_maj_km
                     st.session_state.df.at[selected_idx, '수리내역'] = edit_repair
                     st.session_state.df.at[selected_idx, '옵션'] = edit_option
                     st.session_state.df.at[selected_idx, '_source'] = 'manual' # 수정되면 수기 데이터로 간주
