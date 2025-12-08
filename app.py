@@ -150,12 +150,14 @@ def auto_save():
 def start_generation():
     st.session_state.generating_report = True
     st.session_state.menu_index = 1 
+    st.session_state.copied_prompt_text = None # Clear copied prompt
 
 def reset_generation():
     st.session_state.ai_report = None
     st.session_state.ai_model_used = None
     st.session_state.generating_report = True
     st.session_state.menu_index = 1 
+    st.session_state.copied_prompt_text = None # Clear copied prompt
 
 def load_csv_file_callback():
     key = f"uploaded_csv_files_{st.session_state.uploader_key}"

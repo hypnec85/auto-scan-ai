@@ -16,24 +16,10 @@ if GOOGLE_API_KEY:
 else:
     print("Warning: GOOGLE_API_KEY not found in .env file. AI features will be disabled.")
 
-def generate_engineer_report(df, user_preference):
+def create_engineer_prompt(df, user_preference):
     """
-    Gemini API를 사용하여 엔지니어 관점의 분석 리포트를 생성합니다.
-    모델 폴백 메커니즘을 적용하여 API 오류 시 다음 모델을 시도합니다.
+    Gemini API에 전송할 엔지니어 관점의 분석 리포트 프롬프트를 생성합니다.
     """
-    if GOOGLE_API_KEY is None:
-        return "API 키가 설정되지 않아 AI 분석을 수행할 수 없습니다.", None
-
-    # 사용 가능한 모델 리스트 (우선순위 순)
-    # models.txt 기반
-    model_candidates = [
-        'gemini-2.5-pro',
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'gemini-2.0-flash-lite'
-    ]
-
-    # 현재 날짜
     current_date = datetime.now()
 
     # 프롬프트에 넣을 데이터 요약 (옵션, 특수용도이력, 색상, 1인소유 컬럼 추가)
@@ -190,6 +176,26 @@ def generate_engineer_report(df, user_preference):
     # 📝 총평
     ...
     """
+    return prompt
+
+def generate_engineer_report(df, user_preference):
+    """
+    Gemini API를 사용하여 엔지니어 관점의 분석 리포트를 생성합니다.
+    모델 폴백 메커니즘을 적용하여 API 오류 시 다음 모델을 시도합니다.
+    """
+    if GOOGLE_API_KEY is None:
+        return "API 키가 설정되지 않아 AI 분석을 수행할 수 없습니다.", None
+
+    # 사용 가능한 모델 리스트 (우선순위 순)
+    # models.txt 기반
+    model_candidates = [
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-2.0-flash-lite'
+    ]
+
+    prompt = create_engineer_prompt(df, user_preference)
 
     last_error = None
     for model_name in model_candidates:

@@ -31,7 +31,7 @@ graph TD
 *   **`ui_components.py` (View)**: Streamlit 기반의 UI 렌더링을 전담합니다. 사이드바, 입력 폼, 결과 차트 등 재사용 가능한 UI 컴포넌트를 제공합니다.
 *   **`domain_logic.py` (Model)**: 순수 Python으로 작성된 핵심 비즈니스 로직입니다. `streamlit` 라이브러리에 의존하지 않아 단위 테스트가 용이합니다. (예: Tier 분류, 수리내역 파싱)
 *   **`storage.py` (Data Layer)**: 데이터 로드(CSV), 세션 상태 저장/복구(Pickle), 임시 파일 정리 등 데이터 지속성을 담당합니다.
-*   **`ai_service.py` (External Service)**: Google Gemini API와의 통신을 캡슐화했습니다. 프롬프트 구성, API 호출, 에러 처리 및 폴백 로직을 포함합니다.
+*   **`ai_service.py` (External Service)**: Google Gemini API와의 통신을 캡슐화했습니다. `create_engineer_prompt`와 `generate_engineer_report`로 분리하여, API 호출 전 프롬프트 검증이 가능한 구조를 갖췄습니다.
 
 ---
 

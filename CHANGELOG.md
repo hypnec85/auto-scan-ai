@@ -4,6 +4,20 @@
 
 이 형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.0.0/)를 기반으로 하며, 이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 따릅니다.
 
+## [1.6.0] - 2025-12-08
+
+### 리팩토링 (Refactoring)
+- **프롬프트 생성 로직 분리**: `ai_service.py` 내의 `generate_engineer_report` 함수에서 프롬프트 생성 로직을 `create_engineer_prompt` 함수로 독립 분리. 이를 통해 API 호출 없이도 프롬프트 내용을 미리 생성하고 검증할 수 있는 구조 마련.
+
+### 추가 (Added)
+- **디버그 모드 (Debug Mode)**:
+    - AI 리포트 생성 섹션에 숨겨진 "프롬프트 보기" 버튼 추가.
+    - URL 쿼리 파라미터(`?debug=true`)를 통해서만 버튼이 활성화되도록 구현하여 일반 사용자에게는 노출되지 않도록 처리.
+    - 개발자 또는 관리자가 실제로 Gemini에게 전송되는 프롬프트의 전체 내용을 확인하고 복사할 수 있는 기능 제공.
+
+### 변경 (Changed)
+- **UI 레이아웃 개선**: 디버그 버튼 활성화 시에도 자연스러운 배치를 유지하도록 버튼 그룹 레이아웃을 반응형으로 개선.
+
 ## [1.5.0] - 2025-12-06
 
 ### 리팩토링 (Refactoring)

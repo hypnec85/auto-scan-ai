@@ -5,7 +5,7 @@ import numpy as np
 import altair as alt
 from sklearn.linear_model import LinearRegression
 from storage import load_data, clear_session_data
-from ai_service import generate_engineer_report
+from ai_service import generate_engineer_report, create_engineer_prompt
 from domain_logic import get_row_signature
 
 def render_sidebar(load_csv_file_callback, DEFAULT_COLUMNS, DEFAULT_DATA, auto_save):
@@ -362,6 +362,15 @@ def render_analysis_results(start_generation, reset_generation):
         st.warning("⚠️ AI 리포트는 학습 데이터에 기반하므로, 실제와 다른 정보나 거짓을 포함할 수 있습니다. 반드시 교차 검증하시고 주의하여 참고하십시오.")
         
         
+        
+        # Session state for copied prompt
+        if 'copied_prompt_text' not in st.session_state:
+            st.session_state.copied_prompt_text = None
+
+        def copy_prompt():
+            st.session_state.copied_prompt_text = create_engineer_prompt(df, st.session_state.user_preference)
+            st.toast("프롬프트가 생성되었습니다! 아래의 'Show Prompt'를 확인하세요.")
+
         if st.session_state.generating_report:
             with st.spinner("엔지니어가 매물을 꼼꼼히 살펴보고 보고서를 작성 중입니다..."):
                 report_text, model_name = generate_engineer_report(df, st.session_state.user_preference)
@@ -377,10 +386,27 @@ def render_analysis_results(start_generation, reset_generation):
             
             st.markdown(st.session_state.ai_report)
             st.divider()
-            st.button("🔄 리포트 다시 생성", on_click=reset_generation)
+            
+            col1, col2, col3 = st.columns([2, 1.5, 6.5])
+            with col1:
+                st.button("🔄 리포트 다시 생성", on_click=reset_generation)
+            if st.query_params.get("debug") == "true":
+                with col2:
+                    st.button("프롬프트 보기", on_click=copy_prompt, help="Gemini에 전송되는 프롬프트 내용을 확인합니다.")
             
         else:
-            st.button("AI 리포트 생성하기 (Gemini)", on_click=start_generation)
+            if st.query_params.get("debug") == "true":
+                col1, col2, col3 = st.columns([3, 1.5, 5.5])
+                with col1:
+                    st.button("AI 리포트 생성하기 (Gemini)", on_click=start_generation)
+                with col2:
+                    st.button("프롬프트 보기", on_click=copy_prompt, help="Gemini에 전송되는 프롬프트 내용을 확인합니다.")
+            else:
+                st.button("AI 리포트 생성하기 (Gemini)", on_click=start_generation)
+        
+        if st.session_state.copied_prompt_text:
+            with st.expander("Show Prompt"):
+                st.code(st.session_state.copied_prompt_text, language="markdown")
 
     # 3. Rule-Based 추천
     elif st.session_state.menu_index == 2:
